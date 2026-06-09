@@ -1,0 +1,130 @@
+El parpadeo (*flickering*) al cambiar el zoom ocurre por un desfase de tiempo y sincronización: cuando el usuario altera la escala, tu programa probablemente borra la pantalla (la pinta de blanco o gris) e inmediatamente le pide a `tiny-skia` que renderice la página con el nuevo tamaño. Como calcular los vectores y las fuentes a una nueva resolución toma unos milisegundos, el ojo humano llega a percibir ese cuadro intermedio vacío.
+
+Adobe Reader y los visores modernos (como el de Chrome o Firefox) solucionan esto con un truco visual clásico del desarrollo de videojuegos y motores gráficos: **el re-escalado asíncrono con estiramiento de textura**.
+
+Aquí tienes las estrategias de arquitectura que debes aplicar en tu código de Rust para lograr ese zoom fluido y continuo:
+
+---
+
+## Estrategia 1: Blitting Temporal (Estirar el Canvas Viejo)
+
+No borres la pantalla mientras el nuevo renderizado no esté listo. En su lugar, reutiliza el buffer de píxeles que ya tenías en el caché.
+
+1. **El usuario cambia el zoom:** En lugar de llamar al renderizador del PDF en caliente, toma la imagen de la página que *ya tenías renderizada* al zoom anterior (por ejemplo, al 100%).
+2. **Estiramiento por hardware/software:** Dibuja esa misma imagen vieja en la ventana, pero **forzando sus dimensiones** mediante escalado (interpolación) para que coincida con el nuevo nivel de zoom (por ejemplo, estírala al 150%).
+* *Resultado:* El texto se verá un poco borroso o pixelado por unos milisegundos, pero **el documento nunca desaparecerá de la pantalla**, eliminando el parpadeo por completo.
+
+
+3. **Renderizado en segundo plano:** Mientras el usuario ve la imagen estirada, tu hilo secundario procesa el PDF con la resolución real del nuevo zoom.
+4. **Intercambio (Swap):** Cuando el hilo secundario termina y te envía el nuevo buffer de píxeles nítidos, reemplazas la imagen estirada por la nueva. El usuario verá cómo el texto pasa de estar ligeramente borroso a estar perfectamente nítido de forma instantánea.
+
+---
+
+## Estrategia 2: Implementar Doble Buffer (Double Buffering)
+
+Si estás dibujando directamente sobre el buffer que la ventana de `winit` muestra en pantalla, el usuario verá el proceso de dibujo a medio terminar.
+
+* **Cómo aplicarlo:** Asegúrate de que `tiny-skia` renderice siempre en un buffer oculto (*Back Buffer*). Solo cuando la página se haya dibujado por completo en ese vector de bytes (`Vec<u8>`), copias ese bloque de memoria de golpe al buffer de la ventana (*Front Buffer*) en un solo cuadro de renderizado. En Rust, frameworks como `pixels` o usar texturas en `wgpu` manejan esto de forma nativa y ultra veloz.
+
+---
+
+## Estrategia 3: Filtrado Bilineal durante el "Pinch-to-Zoom"
+
+Si el usuario cambia el zoom arrastrando el trackpad o la rueda del ratón continuamente, no puedes enviar 60 peticiones de renderizado por segundo al hilo de fondo. Apilarías la cola de trabajo y colapsarías la CPU.
+
+* **Durante el gesto de zoom activo:** Desactiva por completo el motor de renderizado de PDFs. Limítate a escalar la imagen actual usando un algoritmo de **filtrado bilineal** o *linear filtering* (tanto `tiny-skia` como las librerías de GPU permiten configurar el tipo de muestreo al dibujar un bitmap). Esto hace que el zoom se sienta suave como la seda, aunque se pixele un poco temporalmente.
+* **Al soltar el control (Debounce):** Cuando el usuario deje de cambiar el zoom (puedes poner un temporizador/debounce de 150 a 200 milisegundos de inactividad), disparas **una sola petición** al hilo de fondo con el factor de zoom final para que devuelva la imagen en alta definición.
+
+---
+
+Para lograr exactamente el efecto de Adobe Reader, la mejor opción es **implementar la combinación de la Estrategia 1 (Blitting Temporal/Estiramiento) y la Estrategia 3 (Debounce del motor de renderizado)**.
+
+No tienes que elegir una u otra; en la arquitectura de un motor gráfico, estas dos estrategias se fusionan en un único flujo de trabajo.
+
+Aquí tienes el porqué esta es la mejor opción y cómo estructurarla en tu código de Rust.
+
+---
+
+## ¿Por qué es la mejor opción?
+
+Si intentas renderizar el PDF con `tiny-skia` a la resolución real en cada micro-cambio de zoom (por ejemplo, mientras el usuario estira los dedos en el trackpad o gira la rueda), el programa se va a congelar porque la CPU no puede procesar vectores tan rápido.
+
+Al fusionar el **estiramiento temporal** con el **debounce**, obtienes lo mejor de los dos mundos:
+
+1. **Fluidez inmediata (60+ FPS):** La interfaz responde instantáneamente escalando una imagen que ya existe en memoria (operación de poquísimos microsegundos).
+2. **Cero Parpadeo:** La pantalla nunca se queda en blanco ni cambia de color. Siempre hay contenido visible.
+3. **Eficiencia de CPU:** Tu hilo secundario de Rust solo trabaja cuando el usuario se detiene, evitando procesar escalas intermedias que nadie va a llegar a ver.
+
+---
+
+## Cómo implementarlo en tu Milestone 4 (Arquitectura en Rust)
+
+Para llevar esto a código, necesitas agregar dos variables a tu estado global de la UI (tu struct principal que maneja `winit`):
+
+* `factor_zoom_visual`: El zoom que estás aplicando en tiempo real al estirar la imagen vieja (cambia continuamente).
+* `factor_zoom_render`: El zoom real al que se renderizó el buffer que tienes guardado (solo cambia cuando el usuario se detiene).
+* Anotación de tiempo (`Instant`): Para saber cuándo el usuario dejó de mover el zoom.
+
+### El flujo lógico en el bucle de eventos (`EventLoop` de `winit`):
+
+```rust
+// 1. EL USUARIO MUEVE LA RUEDA DEL RATÓN (EVENTO DE ZOOM)
+if let Event::WindowEvent { event: WindowEvent::MouseWheel { delta, .. }, .. } = event {
+    // Incrementamos el zoom visual inmediatamente
+    estado.factor_zoom_visual += calcular_incremento(delta);
+    
+    // Registramos el momento del último movimiento
+    estado.ultimo_cambio_zoom = Instant::now();
+    
+    // Solicitamos redibujar la ventana (esto es ultra rápido porque solo estira la textura)
+    window.request_redraw();
+}
+
+// 2. EN EL EVENTO DE DIBUJO (REDRAW REQUESTED)
+if let Event::RedrawRequested(_) = event {
+    let pagina_actual = cache.obtener_pagina(estado.pagina_actual);
+    
+    // Calculamos cuánto debemos estirar el buffer viejo matemáticamente
+    let escala_de_estiramiento = estado.factor_zoom_visual / estado.factor_zoom_render;
+    
+    // Le decimos a tiny-skia (o a tu motor de ventanas) que aplique una matriz de transformación
+    // para dibujar el mapa de bits viejo escalado por 'escala_de_estiramiento'
+    canvas.set_transform(Transform::from_scale(escala_de_estiramiento, escala_de_estiramiento));
+    canvas.draw_bitmap(&pagina_actual.pixels, ...);
+}
+
+// 3. EN EL BUCLE PRINCIPAL (ABOUT TO WAIT / IDLE) - EL "DEBOUNCE"
+if let Event::AboutToWait = event {
+    // Si ha pasado más de 200ms desde el último cambio de zoom,
+    // Y el zoom visual es diferente al zoom renderizado...
+    if estado.ultimo_cambio_zoom.elapsed() > Duration::from_millis(200) 
+       && estado.factor_zoom_visual != estado.factor_zoom_render 
+    {
+        // Sincronizamos los factores
+        estado.factor_zoom_render = estado.factor_zoom_visual;
+        
+        // Disparamos una UNICA petición al hilo secundario para renderizar en alta definición
+        canal_sender.send(ComandoPdf::Renderizar {
+            pagina: estado.pagina_actual,
+            zoom: estado.factor_zoom_render,
+        }).unwrap();
+    }
+}
+
+// 4. CUANDO EL HILO SECUNDARIO RESPONDE (NUEVO BUFFER LISTO)
+if let Ok(MensajePdf::PaginaLista { nueva_pagina }) = canal_receiver.try_recv() {
+    // Guardamos el nuevo buffer nítido en el caché
+    cache.actualizar_pagina(estado.pagina_actual, nueva_pagina);
+    
+    // Forzamos un rediseño. Ahora escala_de_estiramiento será 1.0 (zoom_visual == zoom_render)
+    // El usuario verá el texto pixelado volverse súper nítido al instante.
+    window.request_redraw();
+}
+
+```
+
+## El toque final para que se vea idéntico a Adobe
+
+Cuando reemplaces la imagen vieja estirada por la nueva imagen nítida (Paso 4), puedes aplicar una **pequeña animación de transición (fade-in)** de apenas 100 milisegundos en lugar de un reemplazo seco.
+
+Esto se logra mezclando los píxeles de ambas imágenes con opacidad variable (`alpha`) durante un par de cuadros. Esto hace que el cambio de "borroso a nítido" se sienta extremadamente orgánico, suave y profesional, eliminando cualquier rastro de salto visual brusco.

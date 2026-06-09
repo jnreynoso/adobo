@@ -24,6 +24,7 @@ pub struct Parser {
     xref: HashMap<u32, XrefEntry>,
     trailer: HashMap<String, PdfObject>,
     visited_offsets: HashSet<u64>,
+    resolved_cache: HashMap<u32, PdfObject>,
 }
 
 impl Parser {
@@ -34,6 +35,7 @@ impl Parser {
             xref: HashMap::new(),
             trailer: HashMap::new(),
             visited_offsets: HashSet::new(),
+            resolved_cache: HashMap::new(),
         })
     }
 
@@ -167,20 +169,25 @@ impl Parser {
 
     pub fn resolve_reference(&mut self, ref_obj: &PdfObject) -> io::Result<PdfObject> {
         if let PdfObject::Reference(obj_num, _) = ref_obj {
+            if let Some(cached) = self.resolved_cache.get(obj_num) {
+                return Ok(cached.clone());
+            }
             let entry = self.xref.get(obj_num).cloned().ok_or_else(|| {
                 io::Error::new(io::ErrorKind::NotFound, format!("Object {} not found in XREF", obj_num))
             })?;
-            match entry {
+            let resolved = match entry {
                 XrefEntry::Normal(offset) => {
                     let mut reader = self.file.try_clone()?;
                     reader.seek(SeekFrom::Start(offset))?;
                     Self::skip_object_header(&mut reader)?;
-                    self.resolve_maybe_stream(&mut reader)
+                    self.resolve_maybe_stream(&mut reader)?
                 }
                 XrefEntry::Compressed(container_id, index) => {
-                    self.resolve_compressed_object(container_id, index)
+                    self.resolve_compressed_object(container_id, index)?
                 }
-            }
+            };
+            self.resolved_cache.insert(*obj_num, resolved.clone());
+            Ok(resolved)
         } else { Ok(ref_obj.clone()) }
     }
 
@@ -652,3 +659,49 @@ impl Parser {
         Ok(s)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_all_pages() {
+        let pdf_name = if std::path::Path::new("test.pdf").exists() {
+            "test.pdf"
+        } else {
+            "Eric Hobsbawm - Historia del Siglo XX.pdf"
+        };
+        let mut parser = Parser::new(pdf_name).unwrap();
+        parser.parse_metadata().unwrap();
+        let count = parser.get_page_count().unwrap();
+        println!("TEST PAGE COUNT: {}", count);
+        println!("XREF SIZE: {}", parser.xref.len());
+        let mut failures = 0;
+        for i in 0..count as usize {
+            match parser.get_page_rect(i) {
+                Ok(rect) => {
+                    if i < 15 || i > (count as usize - 5) {
+                        println!("Page {}: {:?}", i, rect);
+                    }
+                }
+                Err(e) => {
+                    println!("Page {} rect failed: {:?}", i, e);
+                    failures += 1;
+                }
+            }
+            match parser.get_page_content(i) {
+                Ok(content) => {
+                    if i < 15 || i > (count as usize - 5) {
+                        println!("Page {} content len: {}", i, content.len());
+                    }
+                }
+                Err(e) => {
+                    println!("Page {} content failed: {:?}", i, e);
+                    failures += 1;
+                }
+            }
+        }
+        assert_eq!(failures, 0, "Failed to resolve some pages!");
+    }
+}
+
