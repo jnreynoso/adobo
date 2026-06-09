@@ -45,6 +45,7 @@ struct App {
     surface: Option<Surface<Rc<Window>, Rc<Window>>>,
     page_images: RefCell<std::collections::HashMap<usize, Pixmap>>,
     requested_pages: RefCell<std::collections::HashSet<(usize, u32)>>,
+    page_access_order: RefCell<std::collections::VecDeque<usize>>,
     tx_worker: std::sync::mpsc::Sender<RenderRequest>,
     rx_worker: std::sync::mpsc::Receiver<WorkerMessage>,
     scroll_x: f32,
@@ -156,6 +157,40 @@ impl App {
         width
     }
 
+    fn record_access_only(&self, page_idx: usize) {
+        let mut order = self.page_access_order.borrow_mut();
+        if let Some(pos) = order.iter().position(|&x| x == page_idx) {
+            order.remove(pos);
+        }
+        order.push_back(page_idx);
+    }
+
+    fn record_access_and_evict(&self, page_idx: usize) {
+        {
+            let mut order = self.page_access_order.borrow_mut();
+            if let Some(pos) = order.iter().position(|&x| x == page_idx) {
+                order.remove(pos);
+            }
+            order.push_back(page_idx);
+        }
+
+        let mut images = self.page_images.borrow_mut();
+        let mut order = self.page_access_order.borrow_mut();
+        while images.len() > 12 {
+            if let Some(lru_idx) = order.pop_front() {
+                images.remove(&lru_idx);
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn clear_cache(&self) {
+        self.page_images.borrow_mut().clear();
+        self.requested_pages.borrow_mut().clear();
+        self.page_access_order.borrow_mut().clear();
+    }
+
     fn get_hover_state(&self, mx: f32, my: f32) -> u8 {
         let width = self.window_size.width as f32;
         let height = self.window_size.height as f32;
@@ -227,22 +262,8 @@ impl App {
         let bg: u32 = (82u32 << 16) | (86u32 << 8) | 89u32;
         let white: u32 = 0x00FFFFFF;
 
-        // Evict pages far from viewport
-        {
-            let mut to_evict = Vec::new();
-            for &idx in self.page_images.borrow().keys() {
-                if idx < self.pages.len() {
-                    let page = &self.pages[idx];
-                    let py = self.scroll_y + page.top_y * self.zoom;
-                    let ph = page.height * self.zoom;
-                    if py + ph < -(height as f32 * 2.0) || py > height as f32 * 3.0 {
-                        to_evict.push(idx);
-                    }
-                } else { to_evict.push(idx); }
-            }
-            let mut images = self.page_images.borrow_mut();
-            for idx in to_evict { images.remove(&idx); }
-        }
+        // Evict pages far from viewport using LRU cache capacity
+        // (Handled automatically on page insertion via record_access_and_evict)
 
         let page_count = self.pages.len();
 
@@ -341,6 +362,7 @@ impl App {
             // Blit page from cache (or placeholder)
             let image_cache = self.page_images.borrow();
             if let Some(page_pixmap) = image_cache.get(&page_idx) {
+                self.record_access_only(page_idx);
                 let src_bytes = page_pixmap.data();
                 let src_w = page_pixmap.width() as usize;
 
@@ -401,38 +423,46 @@ impl App {
             // 2 pages above first_visible
             let start_above = first_visible.saturating_sub(2);
             for idx in start_above..first_visible {
-                if idx < page_count && !image_cache.contains_key(&idx) && !requested.contains(&(idx, zoom_key)) {
-                    let page = &self.pages[idx];
-                    let page_h_f = page.height * self.zoom;
-                    let page_y = (self.scroll_y + page.top_y * self.zoom).round() as i32;
-                    let page_h = page_h_f.round() as i32;
-                    self.tx_worker.send(RenderRequest {
-                        page_idx: idx,
-                        zoom: self.zoom,
-                        page_y: page_y as f32,
-                        page_height: page_h as f32,
-                        window_height: height as f32,
-                    }).ok();
-                    requested.insert((idx, zoom_key));
+                if idx < page_count {
+                    if image_cache.contains_key(&idx) {
+                        self.record_access_only(idx);
+                    } else if !requested.contains(&(idx, zoom_key)) {
+                        let page = &self.pages[idx];
+                        let page_h_f = page.height * self.zoom;
+                        let page_y = (self.scroll_y + page.top_y * self.zoom).round() as i32;
+                        let page_h = page_h_f.round() as i32;
+                        self.tx_worker.send(RenderRequest {
+                            page_idx: idx,
+                            zoom: self.zoom,
+                            page_y: page_y as f32,
+                            page_height: page_h as f32,
+                            window_height: height as f32,
+                        }).ok();
+                        requested.insert((idx, zoom_key));
+                    }
                 }
             }
 
             // 2 pages below next_non_visible
             let end_below = (next_non_visible + 2).min(page_count);
             for idx in next_non_visible..end_below {
-                if idx < page_count && !image_cache.contains_key(&idx) && !requested.contains(&(idx, zoom_key)) {
-                    let page = &self.pages[idx];
-                    let page_h_f = page.height * self.zoom;
-                    let page_y = (self.scroll_y + page.top_y * self.zoom).round() as i32;
-                    let page_h = page_h_f.round() as i32;
-                    self.tx_worker.send(RenderRequest {
-                        page_idx: idx,
-                        zoom: self.zoom,
-                        page_y: page_y as f32,
-                        page_height: page_h as f32,
-                        window_height: height as f32,
-                    }).ok();
-                    requested.insert((idx, zoom_key));
+                if idx < page_count {
+                    if image_cache.contains_key(&idx) {
+                        self.record_access_only(idx);
+                    } else if !requested.contains(&(idx, zoom_key)) {
+                        let page = &self.pages[idx];
+                        let page_h_f = page.height * self.zoom;
+                        let page_y = (self.scroll_y + page.top_y * self.zoom).round() as i32;
+                        let page_h = page_h_f.round() as i32;
+                        self.tx_worker.send(RenderRequest {
+                            page_idx: idx,
+                            zoom: self.zoom,
+                            page_y: page_y as f32,
+                            page_height: page_h as f32,
+                            window_height: height as f32,
+                        }).ok();
+                        requested.insert((idx, zoom_key));
+                    }
                 }
             }
         }
@@ -578,8 +608,7 @@ impl ApplicationHandler for App {
             
             if size.width > 0 && size.height > 0 {
                 self.zoom = self.calculate_fit_zoom(size.width, size.height);
-                self.page_images.borrow_mut().clear();
-                self.requested_pages.borrow_mut().clear();
+                        self.clear_cache();
                 self.center_on_content(size.width, size.height);
                 self.zoom_initialized = true;
             }
@@ -599,8 +628,7 @@ impl ApplicationHandler for App {
                 }
                 if !self.zoom_initialized && size.width > 0 && size.height > 0 {
                     self.zoom = self.calculate_fit_zoom(size.width, size.height);
-                    self.page_images.borrow_mut().clear();
-                    self.requested_pages.borrow_mut().clear();
+                    self.clear_cache();
                     self.center_on_content(size.width, size.height);
                     self.zoom_initialized = true;
                 }
@@ -633,8 +661,7 @@ impl ApplicationHandler for App {
                     if (new_zoom - old_zoom).abs() > 0.0001 {
                         let actual_factor = new_zoom / old_zoom;
                         self.zoom = new_zoom;
-                        self.page_images.borrow_mut().clear();
-                        self.requested_pages.borrow_mut().clear();
+                        self.clear_cache();
                         let cx = self.window_size.width as f32 / 2.0;
                         let cy = self.window_size.height as f32 / 2.0;
                         self.scroll_x = self.scroll_x * actual_factor + cx * (1.0 - actual_factor);
@@ -660,8 +687,7 @@ impl ApplicationHandler for App {
                             let new_zoom = (old_zoom * factor).clamp(0.1, 10.0);
                             let actual_factor = new_zoom / old_zoom;
                             self.zoom = new_zoom;
-                            self.page_images.borrow_mut().clear();
-                            self.requested_pages.borrow_mut().clear();
+                            self.clear_cache();
                             let mx = self.mouse_pos.0;
                             let my = self.mouse_pos.1;
                             self.scroll_x = self.scroll_x * actual_factor + mx * (1.0 - actual_factor);
@@ -684,8 +710,7 @@ impl ApplicationHandler for App {
                                 let new_zoom = (old_zoom * factor).clamp(0.1, 10.0);
                                 let actual_factor = new_zoom / old_zoom;
                                 self.zoom = new_zoom;
-                                self.page_images.borrow_mut().clear();
-                                self.requested_pages.borrow_mut().clear();
+                                self.clear_cache();
                                 let mx = self.mouse_pos.0;
                                 let my = self.mouse_pos.1;
                                 self.scroll_x = self.scroll_x * actual_factor + mx * (1.0 - actual_factor);
@@ -720,8 +745,7 @@ impl ApplicationHandler for App {
                         let new_zoom = self.calculate_fit_zoom(self.window_size.width, self.window_size.height);
                         let actual_factor = new_zoom / old_zoom;
                         self.zoom = new_zoom;
-                        self.page_images.borrow_mut().clear();
-                        self.requested_pages.borrow_mut().clear();
+                        self.clear_cache();
                         let cx = self.window_size.width as f32 / 2.0;
                         let cy = self.window_size.height as f32 / 2.0;
                         self.scroll_x = self.scroll_x * actual_factor + cx * (1.0 - actual_factor);
@@ -747,6 +771,7 @@ impl ApplicationHandler for App {
                 WorkerMessage::PageRendered { page_idx, zoom, pixmap } => {
                     if (zoom - self.zoom).abs() < 0.001 {
                         self.page_images.borrow_mut().insert(page_idx, pixmap);
+                        self.record_access_and_evict(page_idx);
                         let zoom_key = (self.zoom * 1000.0) as u32;
                         self.requested_pages.borrow_mut().remove(&(page_idx, zoom_key));
                         got_any = true;
@@ -926,6 +951,7 @@ impl Gui {
             surface: None,
             page_images: RefCell::new(std::collections::HashMap::new()),
             requested_pages: RefCell::new(std::collections::HashSet::new()),
+            page_access_order: RefCell::new(std::collections::VecDeque::new()),
             tx_worker,
             rx_worker,
             scroll_x: 0.0,
