@@ -38,12 +38,17 @@ pub enum WorkerMessage {
     },
 }
 
+pub struct CachedPage {
+    pub pixmap: Pixmap,
+    pub zoom: f32,
+}
+
 struct App {
     pages: Vec<PageInfo>,
     window: Option<Rc<Window>>,
     context: Option<Context<Rc<Window>>>,
     surface: Option<Surface<Rc<Window>, Rc<Window>>>,
-    page_images: RefCell<std::collections::HashMap<usize, Pixmap>>,
+    page_images: RefCell<std::collections::HashMap<usize, CachedPage>>,
     requested_pages: RefCell<std::collections::HashSet<(usize, u32)>>,
     page_access_order: RefCell<std::collections::VecDeque<usize>>,
     tx_worker: std::sync::mpsc::Sender<RenderRequest>,
@@ -55,6 +60,8 @@ struct App {
     last_scroll_y: f32,
     scroll_down_direction: bool,
     zoom: f32,
+    rendered_zoom: f32,
+    last_zoom_change_time: std::time::Instant,
     modifiers: winit::keyboard::ModifiersState,
     mouse_pos: (f32, f32),
     window_size: winit::dpi::PhysicalSize<u32>,
@@ -536,9 +543,13 @@ impl App {
             let page_h = page_h_f.round() as i32;
 
             // Send pre-fetch request if not cached
-            {
+            if (self.zoom - self.rendered_zoom).abs() < 0.001 {
                 let image_cache = self.page_images.borrow();
-                if !image_cache.contains_key(&page_idx) {
+                let needs_render = match image_cache.get(&page_idx) {
+                    Some(cached) => (cached.zoom - self.zoom).abs() > 0.001,
+                    None => true,
+                };
+                if needs_render {
                     let zoom_key = (self.zoom * 1000.0) as u32;
                     let mut requested = self.requested_pages.borrow_mut();
                     if !requested.contains(&(page_idx, zoom_key)) {
@@ -576,45 +587,91 @@ impl App {
 
             // Blit page from cache (or placeholder)
             let image_cache = self.page_images.borrow();
-            if let Some(page_pixmap) = image_cache.get(&page_idx) {
+            if let Some(cached_page) = image_cache.get(&page_idx) {
                 self.record_access_only(page_idx);
-                let src_bytes = page_pixmap.data();
-                let src_w = page_pixmap.width() as usize;
+                if (cached_page.zoom - self.zoom).abs() < 0.001 {
+                    // Fast path: direct copy
+                    let src_bytes = cached_page.pixmap.data();
+                    let src_w = cached_page.pixmap.width() as usize;
 
-                // Clamp horizontal copy range
-                let src_x_start = (-page_x0).max(0) as usize;
-                let src_x_end = (page_w_f.round() as i32).min(width as i32 - page_x0).max(0) as usize;
-                let dst_x_start = page_x0.max(0) as usize;
-                let copy_w = if src_x_end > src_x_start { src_x_end - src_x_start } else { 0 };
+                    // Clamp horizontal copy range
+                    let src_x_start = (-page_x0).max(0) as usize;
+                    let src_x_end = (page_w_f.round() as i32).min(width as i32 - page_x0).max(0) as usize;
+                    let dst_x_start = page_x0.max(0) as usize;
+                    let copy_w = if src_x_end > src_x_start { src_x_end - src_x_start } else { 0 };
 
-                // Reinterpret source as u32: tiny-skia byte order [R,G,B,A] -> u32 LE = 0xAABBGGRR
-                let src_u32: &[u32] = unsafe {
-                    std::slice::from_raw_parts(
-                        src_bytes.as_ptr() as *const u32,
-                        src_bytes.len() / 4,
-                    )
-                };
+                    let src_u32: &[u32] = unsafe {
+                        std::slice::from_raw_parts(
+                            src_bytes.as_ptr() as *const u32,
+                            src_bytes.len() / 4,
+                        )
+                    };
 
-                for dst_row in dst_y_start..dst_y_end {
-                    let src_row = src_y_start + (dst_row - dst_y_start);
-                    let base = dst_row * width;
+                    for dst_row in dst_y_start..dst_y_end {
+                        let src_row = src_y_start + (dst_row - dst_y_start);
+                        let base = dst_row * width;
 
-                    // Left gray strip
-                    if left_w > 0 { buffer[base..base + left_w].fill(bg); }
+                        if left_w > 0 { buffer[base..base + left_w].fill(bg); }
 
-                    // Page pixels: swap R and B channels for softbuffer format
-                    // src: 0xAABBGGRR -> dst: 0x00RRGGBB
-                    if copy_w > 0 {
-                        let src_start = src_row * src_w + src_x_start;
-                        let src_slice = &src_u32[src_start..src_start + copy_w];
-                        let dst_slice = &mut buffer[base + dst_x_start..base + dst_x_start + copy_w];
-                        for (d, &s) in dst_slice.iter_mut().zip(src_slice.iter()) {
-                            *d = ((s & 0x000000FF) << 16) | (s & 0x0000FF00) | ((s & 0x00FF0000) >> 16);
+                        if copy_w > 0 {
+                            let src_start = src_row * src_w + src_x_start;
+                            let src_slice = &src_u32[src_start..src_start + copy_w];
+                            let dst_slice = &mut buffer[base + dst_x_start..base + dst_x_start + copy_w];
+                            for (d, &s) in dst_slice.iter_mut().zip(src_slice.iter()) {
+                                *d = ((s & 0x000000FF) << 16) | (s & 0x0000FF00) | ((s & 0x00FF0000) >> 16);
+                            }
                         }
-                    }
 
-                    // Right gray strip
-                    if right_w > 0 { buffer[base + page_right..base + width].fill(bg); }
+                        if right_w > 0 { buffer[base + page_right..base + width].fill(bg); }
+                    }
+                } else {
+                    // Slow path: stretch/scale the old pixmap to target size without allocations
+                    let inv_scale = cached_page.zoom / self.zoom;
+                    
+                    let src_bytes = cached_page.pixmap.data();
+                    let src_w = cached_page.pixmap.width() as usize;
+                    let src_h = cached_page.pixmap.height() as usize;
+
+                    if src_w > 0 && src_h > 0 {
+                        let src_u32: &[u32] = unsafe {
+                            std::slice::from_raw_parts(
+                                src_bytes.as_ptr() as *const u32,
+                                src_bytes.len() / 4,
+                            )
+                        };
+
+                        let src_x_start_page = (-page_x0).max(0) as usize;
+                        let dst_x_start = page_x0.max(0) as usize;
+                        let dst_x_end = (page_x0 + page_w_f.round() as i32).min(width as i32).max(0) as usize;
+                        let copy_w = if dst_x_end > dst_x_start { dst_x_end - dst_x_start } else { 0 };
+                        let src_w_sub = src_w.saturating_sub(1);
+                        let src_h_sub = src_h.saturating_sub(1);
+
+                        for dst_row in dst_y_start..dst_y_end {
+                            let base = dst_row * width;
+                            if left_w > 0 { buffer[base..base + left_w].fill(bg); }
+                            
+                            if copy_w > 0 {
+                                let y_in_page = (src_y_start + (dst_row - dst_y_start)) as f32;
+                                let src_y = ((y_in_page * inv_scale) as usize).min(src_h_sub);
+                                let src_row_offset = src_y * src_w;
+                                
+                                let dst_slice = &mut buffer[base + dst_x_start..base + dst_x_start + copy_w];
+                                let mut src_x_frac = src_x_start_page as f32 * inv_scale;
+                                
+                                for d in dst_slice.iter_mut() {
+                                    let src_x = (src_x_frac as usize).min(src_w_sub);
+                                    let s = src_u32[src_row_offset + src_x];
+                                    *d = ((s & 0x000000FF) << 16) | (s & 0x0000FF00) | ((s & 0x00FF0000) >> 16);
+                                    src_x_frac += inv_scale;
+                                }
+                            }
+                            
+                            if right_w > 0 { buffer[base + page_right..base + width].fill(bg); }
+                        }
+                    } else {
+                        fill_rows(&mut buffer, dst_y_start, dst_y_end, white);
+                    }
                 }
             } else {
                 // White placeholder while page renders
@@ -630,7 +687,7 @@ impl App {
         }
 
         // Send pre-fetch requests for pages around the viewport (Asymmetric margin)
-        {
+        if (self.zoom - self.rendered_zoom).abs() < 0.001 {
             let (preload_above, preload_below) = if self.scroll_down_direction {
                 (1, 3)
             } else {
@@ -645,7 +702,11 @@ impl App {
             let start_above = first_visible.saturating_sub(preload_above);
             for idx in start_above..first_visible {
                 if idx < page_count {
-                    if image_cache.contains_key(&idx) {
+                    let is_cached_at_zoom = match image_cache.get(&idx) {
+                        Some(cached) => (cached.zoom - self.zoom).abs() < 0.001,
+                        None => false,
+                    };
+                    if is_cached_at_zoom {
                         self.record_access_only(idx);
                     } else if !requested.contains(&(idx, zoom_key)) {
                         let page = &self.pages[idx];
@@ -668,7 +729,11 @@ impl App {
             let end_below = (next_non_visible + preload_below).min(page_count);
             for idx in next_non_visible..end_below {
                 if idx < page_count {
-                    if image_cache.contains_key(&idx) {
+                    let is_cached_at_zoom = match image_cache.get(&idx) {
+                        Some(cached) => (cached.zoom - self.zoom).abs() < 0.001,
+                        None => false,
+                    };
+                    if is_cached_at_zoom {
                         self.record_access_only(idx);
                     } else if !requested.contains(&(idx, zoom_key)) {
                         let page = &self.pages[idx];
@@ -833,7 +898,8 @@ impl ApplicationHandler for App {
             
             if size.width > 0 && size.height > 0 {
                 self.zoom = self.calculate_fit_zoom(size.width, size.height);
-                        self.clear_cache();
+                self.rendered_zoom = self.zoom;
+                self.clear_cache();
                 self.center_on_content(size.width, size.height);
                 self.zoom_initialized = true;
             }
@@ -853,6 +919,7 @@ impl ApplicationHandler for App {
                 }
                 if !self.zoom_initialized && size.width > 0 && size.height > 0 {
                     self.zoom = self.calculate_fit_zoom(size.width, size.height);
+                    self.rendered_zoom = self.zoom;
                     self.clear_cache();
                     self.center_on_content(size.width, size.height);
                     self.zoom_initialized = true;
@@ -886,7 +953,7 @@ impl ApplicationHandler for App {
                     if (new_zoom - old_zoom).abs() > 0.0001 {
                         let actual_factor = new_zoom / old_zoom;
                         self.zoom = new_zoom;
-                        self.clear_cache();
+                        self.last_zoom_change_time = std::time::Instant::now();
                         let cx = self.window_size.width as f32 / 2.0;
                         let cy = self.window_size.height as f32 / 2.0;
                         self.scroll_x = self.scroll_x * actual_factor + cx * (1.0 - actual_factor);
@@ -912,7 +979,7 @@ impl ApplicationHandler for App {
                             let new_zoom = (old_zoom * factor).clamp(0.1, 10.0);
                             let actual_factor = new_zoom / old_zoom;
                             self.zoom = new_zoom;
-                            self.clear_cache();
+                            self.last_zoom_change_time = std::time::Instant::now();
                             let mx = self.mouse_pos.0;
                             let my = self.mouse_pos.1;
                             self.scroll_x = self.scroll_x * actual_factor + mx * (1.0 - actual_factor);
@@ -935,7 +1002,7 @@ impl ApplicationHandler for App {
                                 let new_zoom = (old_zoom * factor).clamp(0.1, 10.0);
                                 let actual_factor = new_zoom / old_zoom;
                                 self.zoom = new_zoom;
-                                self.clear_cache();
+                                self.last_zoom_change_time = std::time::Instant::now();
                                 let mx = self.mouse_pos.0;
                                 let my = self.mouse_pos.1;
                                 self.scroll_x = self.scroll_x * actual_factor + mx * (1.0 - actual_factor);
@@ -970,7 +1037,7 @@ impl ApplicationHandler for App {
                         let new_zoom = self.calculate_fit_zoom(self.window_size.width, self.window_size.height);
                         let actual_factor = new_zoom / old_zoom;
                         self.zoom = new_zoom;
-                        self.clear_cache();
+                        self.last_zoom_change_time = std::time::Instant::now();
                         let cx = self.window_size.width as f32 / 2.0;
                         let cy = self.window_size.height as f32 / 2.0;
                         self.scroll_x = self.scroll_x * actual_factor + cx * (1.0 - actual_factor);
@@ -990,12 +1057,22 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        // Debounce of 200ms for zoom rendering
+        if (self.zoom - self.rendered_zoom).abs() > 0.0001 
+            && self.last_zoom_change_time.elapsed() >= std::time::Duration::from_millis(200) 
+        {
+            self.rendered_zoom = self.zoom;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+
         let mut got_any = false;
         while let Ok(msg) = self.rx_worker.try_recv() {
             match msg {
                 WorkerMessage::PageRendered { page_idx, zoom, pixmap } => {
                     if (zoom - self.zoom).abs() < 0.001 {
-                        self.page_images.borrow_mut().insert(page_idx, pixmap);
+                        self.page_images.borrow_mut().insert(page_idx, CachedPage { pixmap, zoom });
                         self.record_access_and_evict(page_idx);
                         let zoom_key = (self.zoom * 1000.0) as u32;
                         self.requested_pages.borrow_mut().remove(&(page_idx, zoom_key));
@@ -1186,6 +1263,8 @@ impl Gui {
             last_scroll_y: 0.0,
             scroll_down_direction: true,
             zoom: 1.0,
+            rendered_zoom: 1.0,
+            last_zoom_change_time: std::time::Instant::now(),
             modifiers: winit::keyboard::ModifiersState::default(),
             mouse_pos: (0.0, 0.0),
             window_size: winit::dpi::PhysicalSize::new(0, 0),
