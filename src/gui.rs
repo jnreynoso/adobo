@@ -52,6 +52,8 @@ struct App {
     scroll_y: f32,
     target_scroll_x: f32,
     target_scroll_y: f32,
+    last_scroll_y: f32,
+    scroll_down_direction: bool,
     zoom: f32,
     modifiers: winit::keyboard::ModifiersState,
     mouse_pos: (f32, f32),
@@ -79,11 +81,13 @@ impl App {
             self.scroll_y = cy;
             self.target_scroll_x = cx;
             self.target_scroll_y = cy;
+            self.last_scroll_y = cy;
         } else {
             self.scroll_x = 100.0;
             self.scroll_y = 100.0;
             self.target_scroll_x = 100.0;
             self.target_scroll_y = 100.0;
+            self.last_scroll_y = 100.0;
         }
     }
 
@@ -238,6 +242,15 @@ impl App {
         let height = self.window_size.height as usize;
 
         if width == 0 || height == 0 { return; }
+
+        // Detect scroll direction
+        let scroll_diff = self.target_scroll_y - self.last_scroll_y;
+        if scroll_diff < -0.1 {
+            self.scroll_down_direction = true;
+        } else if scroll_diff > 0.1 {
+            self.scroll_down_direction = false;
+        }
+        self.last_scroll_y = self.target_scroll_y;
 
         // No easing - scroll is applied immediately for zero lag
         self.scroll_x = self.target_scroll_x;
@@ -414,14 +427,20 @@ impl App {
             fill_rows(&mut buffer, cursor_y, height, bg);
         }
 
-        // Send pre-fetch requests for pages around the viewport (2 above, 2 below)
+        // Send pre-fetch requests for pages around the viewport (Asymmetric margin)
         {
+            let (preload_above, preload_below) = if self.scroll_down_direction {
+                (1, 3)
+            } else {
+                (3, 1)
+            };
+
             let zoom_key = (self.zoom * 1000.0) as u32;
             let image_cache = self.page_images.borrow();
             let mut requested = self.requested_pages.borrow_mut();
 
-            // 2 pages above first_visible
-            let start_above = first_visible.saturating_sub(2);
+            // Pages above first_visible
+            let start_above = first_visible.saturating_sub(preload_above);
             for idx in start_above..first_visible {
                 if idx < page_count {
                     if image_cache.contains_key(&idx) {
@@ -443,8 +462,8 @@ impl App {
                 }
             }
 
-            // 2 pages below next_non_visible
-            let end_below = (next_non_visible + 2).min(page_count);
+            // Pages below next_non_visible
+            let end_below = (next_non_visible + preload_below).min(page_count);
             for idx in next_non_visible..end_below {
                 if idx < page_count {
                     if image_cache.contains_key(&idx) {
@@ -958,6 +977,8 @@ impl Gui {
             scroll_y: 0.0,
             target_scroll_x: 0.0,
             target_scroll_y: 0.0,
+            last_scroll_y: 0.0,
+            scroll_down_direction: true,
             zoom: 1.0,
             modifiers: winit::keyboard::ModifiersState::default(),
             mouse_pos: (0.0, 0.0),
