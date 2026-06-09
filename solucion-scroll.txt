@@ -1,0 +1,62 @@
+El problema del *delay* o *lag* al hacer scroll es el segundo gran rito de iniciación al crear un lector de PDF (el primero fue la codificación). Es un cuello de botella clásico de rendimiento en aplicaciones gráficas.
+
+Cuando percibes un retraso, significa que tu ciclo de renderizado está tardando más de **16.6 milisegundos** en procesar el evento de scroll. A 60 FPS (cuadros por segundo), si tu código tarda, por ejemplo, 50ms en reaccionar, el usuario sentirá que el documento "pesa" o se arrastra con retraso.
+
+Como estás usando **Rust**, tienes toda la potencia para que esto vuele, pero debes estructurar el manejo del scroll de forma eficiente. Analicemos por qué está pasando y cómo resolverlo arquitectónicamente.
+
+---
+
+## ¿Por qué ocurre el Delay? (El Antipatrón)
+
+Si tu Milestone 4 está conectado de forma "ingenua", cada vez que el usuario mueve la rueda del ratón, tu código probablemente hace esto en el hilo principal (Main/UI Thread):
+
+```
+[Evento Scroll] ──> [Calcular nueva Y] ──> [Descomprimir Streams] ──> [Interpretar Comandos] ──> [Dibujar con tiny-skia] ──> [Mostrar en Ventana]
+
+```
+
+Hacer todo esto *en caliente* durante el scroll es una receta para el *lag*. Descomprimir con `flate2` y parsear texto requiere mucha CPU. Además, si estás redibujando **toda la página** desde cero (recalculando vectores y fuentes) en cada píxel que se mueve, estás sobrecargando el procesador.
+
+---
+
+## La Solución Arquitectónica: Patrón de Renderizado
+
+Para lograr un scroll suave a 60 FPS o más, debes separar la **Geometría de la UI** del **Procesamiento del PDF**. Aquí tienes las tres estrategias que debes implementar en tu código de Rust:
+
+### 1. Cachear las Páginas como Texturas/Imágenes (Imprescindible)
+
+No interpretes el PDF mientras haces scroll. El scroll solo debe mover elementos que **ya fueron dibujados previamente**.
+
+* **Cómo implementarlo:** Cuando se carga una página por primera vez, expándela, interprétala y rasterízala con `tiny-skia` en un buffer de píxeles en memoria (un `Vec<u8>` que represente la imagen de la página completa, o una textura si usas la GPU con `wgpu`).
+* **Durante el scroll:** Tu bucle de eventos de `winit` solo debe cambiar las coordenadas de dibujo de esa "imagen" pre-renderizada. Mover una imagen en pantalla es una operación ultra rápida; re-interpretar operadores de dibujo del PDF no lo es.
+
+### 2. Implementar "Lazy Rendering" y Virtualización
+
+Si el PDF tiene 100 páginas, no puedes pre-renderizar las 100 páginas en memoria de golpe (te quedarías sin RAM). Necesitas una **Viewport Virtual**.
+
+* Mantén en memoria RAM como "imagen lista" únicamente:
+1. La página que se está viendo actualmente.
+2. La mitad de la página anterior.
+3. La mitad de la página siguiente (pre-fetching).
+
+
+* Si el usuario hace scroll hacia abajo y la Página 1 sale por completo de la pantalla, destruye su buffer de píxeles (o guárdalo en un caché limitado) y comienza a renderizar la Página 3 en un hilo secundario.
+
+### 3. Multithreading: Saca el Parser del Hilo de la UI
+
+Rust brilla con luz propia en este apartado gracias a su concurrencia segura (*Fearless Concurrency*). **El hilo principal (`winit`) solo debe encargarse de escuchar al ratón y pintar el buffer.**
+
+* Crea un hilo secundario (puedes usar un *thread pool* simple con el crate `rayon` o canales estándar `std::sync::mpsc`).
+* Cuando el usuario se acerque a una nueva página, el hilo principal envía un mensaje por el canal: `Canal::enviar(RenderizarPagina(3))`.
+* El hilo secundario toma el PDF, descomprime, interpreta, genera el buffer de píxeles con `tiny-skia` y se lo devuelve al hilo principal: `Canal::recibir(PaginaLista(3, buffer_de_pixeles))`.
+* Mientras el hilo secundario trabaja y sufre con la CPU, tu hilo principal sigue respondiendo al scroll del usuario a 60 FPS fijos. Si la página aún no está lista, puedes dibujar temporalmente un cuadro gris o un spinner de carga.
+
+---
+
+## Checklists Técnico para tu código en Rust:
+
+* [ ] **¿Estás compilando en modo Release?** Ejecutar con `cargo run` compila en modo *Debug* sin optimizaciones. En Rust, el rendimiento de librerías de gráficos y descompresión puede ser hasta **10 o 20 veces más lento** en Debug. Prueba primero con `cargo run --release`.
+* [ ] **¿Estás usando daños parciales?** Si usas `tiny-skia`, asegúrate de no limpiar y redibujar toda la ventana si solo cambió una pequeña franja debido al scroll. Aunque con el cacheo de páginas completas esto pasa a segundo plano.
+* [ ] **¿El evento de scroll está saturando el render?** A veces `winit` envía demasiados eventos de scroll por segundo. Asegúrate de actualizar la posición física del documento, pero solicita el rediseño de la ventana (`window.request_redraw()`) integrándolo con el refresco de la pantalla (V-Sync), no por cada micro-evento del mouse.
+
+Prueba primero ejecutando en `--release`. Si el delay persiste, el siguiente paso lógico para tu arquitectura es mover el renderizador (`tiny-skia` / Interpreter) a un hilo de fondo y dejar que el bucle de la ventana solo mueva mapas de bits pre-renderizados.
