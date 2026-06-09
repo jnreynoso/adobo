@@ -60,6 +60,36 @@ struct App {
     window_size: winit::dpi::PhysicalSize<u32>,
     zoom_initialized: bool,
     default_font: Arc<FontVec>,
+    logo_pixmap: Option<Pixmap>,
+}
+
+fn load_window_icon() -> Option<winit::window::Icon> {
+    if let Ok(pixmap) = Pixmap::load_png("logo.png") {
+        let target_size = 64;
+        let mut resized = Pixmap::new(target_size, target_size)?;
+        let sx = target_size as f32 / pixmap.width() as f32;
+        let sy = target_size as f32 / pixmap.height() as f32;
+        let transform = Transform::from_scale(sx, sy);
+        resized.draw_pixmap(
+            0, 0,
+            pixmap.as_ref(),
+            &PixmapPaint::default(),
+            transform,
+            None
+        );
+        let mut rgba = resized.data().to_vec();
+        for pixel in rgba.chunks_exact_mut(4) {
+            let a = pixel[3];
+            if a > 0 && a < 255 {
+                pixel[0] = ((pixel[0] as u16 * 255) / a as u16) as u8;
+                pixel[1] = ((pixel[1] as u16 * 255) / a as u16) as u8;
+                pixel[2] = ((pixel[2] as u16 * 255) / a as u16) as u8;
+            }
+        }
+        winit::window::Icon::from_rgba(rgba, target_size, target_size).ok()
+    } else {
+        None
+    }
 }
 
 impl App {
@@ -195,6 +225,80 @@ impl App {
         self.page_access_order.borrow_mut().clear();
     }
 
+    fn draw_splash_screen(&self, buffer: &mut [u32], width: usize, height: usize) {
+        let bg_color = (18u32 << 16) | (18u32 << 8) | 18u32;
+        buffer.fill(bg_color);
+
+        let font = &self.default_font;
+        let title = "UfReader";
+        let title_size = 36.0f32;
+        let tp = {
+            let mut p = Paint::default();
+            p.set_color_rgba8(255, 255, 255, 255);
+            p.anti_alias = true;
+            p
+        };
+
+        let splash_w = 400;
+        let splash_h = 400;
+        if let Some(mut sp) = Pixmap::new(splash_w, splash_h) {
+            sp.fill(Color::from_rgba8(18, 18, 18, 255));
+
+            if let Some(ref logo_pixmap) = self.logo_pixmap {
+                let lw = 160.0f32;
+                let lh = 160.0f32;
+                let lx = (splash_w as f32 - lw) / 2.0;
+                let ly = 40.0f32;
+                let sx = lw / logo_pixmap.width() as f32;
+                let sy = lh / logo_pixmap.height() as f32;
+                let transform = Transform::from_scale(sx, sy);
+                sp.draw_pixmap(
+                    lx as i32, ly as i32,
+                    logo_pixmap.as_ref(),
+                    &PixmapPaint::default(),
+                    transform,
+                    None
+                );
+            }
+
+            let text_y = 260.0f32;
+            let tw = self.measure_text_width(title, title_size, font);
+            let tx = (splash_w as f32 - tw) / 2.0;
+            self.draw_text(&mut sp, title, tx, text_y, title_size, font, &tp);
+
+            let sub = "Cargando documento...";
+            let sub_size = 16.0f32;
+            let sp_sub = {
+                let mut p = Paint::default();
+                p.set_color_rgba8(150, 150, 150, 255);
+                p.anti_alias = true;
+                p
+            };
+            let sw = self.measure_text_width(sub, sub_size, font);
+            let sx = (splash_w as f32 - sw) / 2.0;
+            self.draw_text(&mut sp, sub, sx, text_y + 40.0, sub_size, font, &sp_sub);
+
+            let sp_data = sp.data();
+            let sp_u32: &[u32] = unsafe {
+                std::slice::from_raw_parts(sp_data.as_ptr() as *const u32, sp_data.len() / 4)
+            };
+            let ox = (width.saturating_sub(splash_w as usize)) / 2;
+            let oy = (height.saturating_sub(splash_h as usize)) / 2;
+
+            for row in 0..splash_h as usize {
+                let dst_row = oy + row;
+                if dst_row >= height { break; }
+                let base = dst_row * width;
+                for col in 0..splash_w as usize {
+                    let dst_col = ox + col;
+                    if dst_col >= width { break; }
+                    let s = sp_u32[row * splash_w as usize + col];
+                    buffer[base + dst_col] = ((s & 0xFF) << 16) | (s & 0xFF00) | ((s >> 16) & 0xFF);
+                }
+            }
+        }
+    }
+
     fn get_hover_state(&self, mx: f32, my: f32) -> u8 {
         let width = self.window_size.width as f32;
         let height = self.window_size.height as f32;
@@ -279,6 +383,104 @@ impl App {
         // (Handled automatically on page insertion via record_access_and_evict)
 
         let page_count = self.pages.len();
+
+        let is_loading = self.page_images.borrow().is_empty();
+        if page_count > 0 && is_loading {
+            // Find visible page range
+            let first_visible = {
+                let mut lo = 0usize;
+                let mut hi = page_count;
+                while lo < hi {
+                    let mid = (lo + hi) / 2;
+                    let bot = self.scroll_y + (self.pages[mid].top_y + self.pages[mid].height) * self.zoom;
+                    if bot < -100.0 { lo = mid + 1; } else { hi = mid; }
+                }
+                lo
+            };
+
+            let mut next_non_visible = page_count;
+            for page_idx in first_visible..page_count {
+                let page = &self.pages[page_idx];
+                let page_y = (self.scroll_y + page.top_y * self.zoom).round() as i32;
+                if page_y >= height as i32 {
+                    next_non_visible = page_idx;
+                    break;
+                }
+            }
+
+            // Send render requests for the visible pages so loading progresses
+            let zoom_key = (self.zoom * 1000.0) as u32;
+            {
+                let mut requested = self.requested_pages.borrow_mut();
+                for idx in first_visible..next_non_visible {
+                    if !requested.contains(&(idx, zoom_key)) {
+                        let page = &self.pages[idx];
+                        let page_h_f = page.height * self.zoom;
+                        let page_y = (self.scroll_y + page.top_y * self.zoom).round() as i32;
+                        let page_h = page_h_f.round() as i32;
+                        self.tx_worker.send(RenderRequest {
+                            page_idx: idx,
+                            zoom: self.zoom,
+                            page_y: page_y as f32,
+                            page_height: page_h as f32,
+                            window_height: height as f32,
+                        }).ok();
+                        requested.insert((idx, zoom_key));
+                    }
+                }
+            }
+
+            // Send preload requests as well
+            {
+                let (preload_above, preload_below) = if self.scroll_down_direction {
+                    (1, 3)
+                } else {
+                    (3, 1)
+                };
+                let mut requested = self.requested_pages.borrow_mut();
+
+                let start_above = first_visible.saturating_sub(preload_above);
+                for idx in start_above..first_visible {
+                    if idx < page_count && !requested.contains(&(idx, zoom_key)) {
+                        let page = &self.pages[idx];
+                        let page_h_f = page.height * self.zoom;
+                        let page_y = (self.scroll_y + page.top_y * self.zoom).round() as i32;
+                        let page_h = page_h_f.round() as i32;
+                        self.tx_worker.send(RenderRequest {
+                            page_idx: idx,
+                            zoom: self.zoom,
+                            page_y: page_y as f32,
+                            page_height: page_h as f32,
+                            window_height: height as f32,
+                        }).ok();
+                        requested.insert((idx, zoom_key));
+                    }
+                }
+
+                let end_below = (next_non_visible + preload_below).min(page_count);
+                for idx in next_non_visible..end_below {
+                    if idx < page_count && !requested.contains(&(idx, zoom_key)) {
+                        let page = &self.pages[idx];
+                        let page_h_f = page.height * self.zoom;
+                        let page_y = (self.scroll_y + page.top_y * self.zoom).round() as i32;
+                        let page_h = page_h_f.round() as i32;
+                        self.tx_worker.send(RenderRequest {
+                            page_idx: idx,
+                            zoom: self.zoom,
+                            page_y: page_y as f32,
+                            page_height: page_h as f32,
+                            window_height: height as f32,
+                        }).ok();
+                        requested.insert((idx, zoom_key));
+                    }
+                }
+            }
+
+            self.draw_splash_screen(&mut buffer, width, height);
+            buffer.present().ok();
+            self.surface = Some(surface);
+            return;
+        }
 
         if page_count == 0 {
             buffer.fill(bg);
@@ -624,6 +826,10 @@ impl ApplicationHandler for App {
             self.window = Some(window.clone());
             self.context = Some(context);
             self.surface = Some(surface);
+            
+            if let Some(icon) = load_window_icon() {
+                window.set_window_icon(Some(icon));
+            }
             
             if size.width > 0 && size.height > 0 {
                 self.zoom = self.calculate_fit_zoom(size.width, size.height);
@@ -985,6 +1191,7 @@ impl Gui {
             window_size: winit::dpi::PhysicalSize::new(0, 0),
             zoom_initialized: false,
             default_font,
+            logo_pixmap: Pixmap::load_png("logo.png").ok(),
         };
         event_loop.run_app(&mut app)?;
         Ok(())
