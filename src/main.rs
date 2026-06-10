@@ -57,6 +57,7 @@ fn main() {
                 width: page_rect.width,
                 height: page_rect.height,
                 top_y: current_top_y,
+                center_x_offset: 0.0,
             });
             current_top_y += page_rect.height + 20.0;
         }

@@ -20,6 +20,14 @@ pub struct PageInfo {
     pub width: f32,
     pub height: f32,
     pub top_y: f32,
+    pub center_x_offset: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LayoutMode {
+    SinglePage,
+    TwoPage,
+    Continuous,
 }
 
 pub struct RenderRequest {
@@ -68,6 +76,10 @@ struct App {
     zoom_initialized: bool,
     default_font: Arc<FontVec>,
     logo_pixmap: Option<Pixmap>,
+    layout_mode: LayoutMode,
+    left_menu_open: bool,
+    page_input_active: bool,
+    page_input_text: String,
 }
 
 fn load_window_icon() -> Option<winit::window::Icon> {
@@ -100,6 +112,52 @@ fn load_window_icon() -> Option<winit::window::Icon> {
 }
 
 impl App {
+    fn recalculate_layout(&mut self) {
+        let mut current_y = 0.0;
+        let gap = 20.0;
+        let mut i = 0;
+        while i < self.pages.len() {
+            if self.layout_mode == LayoutMode::Continuous || self.layout_mode == LayoutMode::SinglePage {
+                self.pages[i].top_y = current_y;
+                self.pages[i].center_x_offset = 0.0;
+                current_y += self.pages[i].height + gap;
+                i += 1;
+            } else if self.layout_mode == LayoutMode::TwoPage {
+                if i == 0 {
+                    // Title page alone in TwoPage mode? Usually yes, but let's just make page 1 and 2 side by side.
+                    // Wait, standard TwoPage: page 0 alone, page 1 and 2 side by side.
+                    // But we can just make them pairs from the start for simplicity, or 0 alone.
+                    // Let's pair them directly for simplicity.
+                }
+                if i + 1 < self.pages.len() {
+                    let h1 = self.pages[i].height;
+                    let h2 = self.pages[i+1].height;
+                    let max_h = h1.max(h2);
+                    let w1 = self.pages[i].width;
+                    let w2 = self.pages[i+1].width;
+                    
+                    self.pages[i].top_y = current_y;
+                    self.pages[i].center_x_offset = -w1 / 2.0 - 10.0;
+                    self.pages[i+1].top_y = current_y;
+                    self.pages[i+1].center_x_offset = w2 / 2.0 + 10.0;
+                    
+                    current_y += max_h + gap;
+                    i += 2;
+                } else {
+                    self.pages[i].top_y = current_y;
+                    self.pages[i].center_x_offset = 0.0;
+                    current_y += self.pages[i].height + gap;
+                    i += 1;
+                }
+            }
+        }
+        let total_h = self.pages.last().map(|p| p.top_y + p.height).unwrap_or(0.0) * self.zoom;
+        let min_scroll = -(total_h - self.window_size.height as f32 + 100.0).max(0.0);
+        self.scroll_y = self.scroll_y.clamp(min_scroll, 100.0);
+        self.target_scroll_y = self.scroll_y;
+        if let Some(w) = self.window.as_ref() { w.request_redraw(); }
+    }
+
     fn center_on_content(&mut self, width: u32, height: u32) {
         if !self.pages.is_empty() {
             let page_w = self.pages[0].width;
@@ -132,11 +190,86 @@ impl App {
         if self.pages.is_empty() || width == 0 || height == 0 {
             return 1.0;
         }
-        let page = &self.pages[0];
-        let margin = 40.0; // 20px on each side
-        let zoom_w = (width as f32 - margin) / page.width;
-        let zoom_h = (height as f32 - margin) / page.height;
+        let margin = 40.0;
+        let base_w = self.pages[0].width;
+        let w = if self.layout_mode == LayoutMode::TwoPage { base_w * 2.0 + 20.0 } else { base_w };
+        let zoom_w = (width as f32 - margin) / w;
+        let zoom_h = (height as f32 - margin) / self.pages[0].height;
         zoom_w.min(zoom_h).clamp(0.1, 10.0)
+    }
+
+    fn calculate_fit_width_zoom(&self, width: u32) -> f32 {
+        if self.pages.is_empty() || width == 0 { return 1.0; }
+        let margin = 40.0;
+        let base_w = self.pages[0].width;
+        let w = if self.layout_mode == LayoutMode::TwoPage { base_w * 2.0 + 20.0 } else { base_w };
+        ((width as f32 - margin) / w).clamp(0.1, 10.0)
+    }
+
+    fn calculate_fit_height_zoom(&self, height: u32) -> f32 {
+        if self.pages.is_empty() || height == 0 { return 1.0; }
+        let margin = 40.0;
+        ((height as f32 - margin) / self.pages[0].height).clamp(0.1, 10.0)
+    }
+
+    fn set_target_zoom(&mut self, new_zoom: f32) {
+        let old_zoom = self.zoom;
+        if (new_zoom - old_zoom).abs() > 0.0001 {
+            let actual_factor = new_zoom / old_zoom;
+            self.zoom = new_zoom;
+            self.last_zoom_change_time = std::time::Instant::now();
+            let cx = self.window_size.width as f32 / 2.0;
+            let cy = self.window_size.height as f32 / 2.0;
+            self.scroll_x = self.scroll_x * actual_factor + cx * (1.0 - actual_factor);
+            self.scroll_y = self.scroll_y * actual_factor + cy * (1.0 - actual_factor);
+            self.target_scroll_x = self.scroll_x;
+            self.target_scroll_y = self.scroll_y;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+    }
+
+    fn get_current_page_idx(&self) -> usize {
+        if self.pages.is_empty() {
+            return 0;
+        }
+        let viewport_center = self.window_size.height as f32 / 2.0;
+        for (idx, page) in self.pages.iter().enumerate() {
+            let top = self.scroll_y + page.top_y * self.zoom;
+            let bottom = top + page.height * self.zoom;
+            if viewport_center >= top && viewport_center <= bottom {
+                return idx;
+            }
+        }
+        for (idx, page) in self.pages.iter().enumerate() {
+            let bottom = self.scroll_y + (page.top_y + page.height) * self.zoom;
+            if bottom > 0.0 {
+                return idx;
+            }
+        }
+        0
+    }
+
+    fn jump_to_page(&mut self, idx: usize) {
+        if idx >= self.pages.len() { return; }
+        let page = &self.pages[idx];
+        let mut target_y = -page.top_y * self.zoom;
+        
+        let page_h_zoomed = page.height * self.zoom;
+        if page_h_zoomed < self.window_size.height as f32 {
+            target_y += (self.window_size.height as f32 - page_h_zoomed) / 2.0;
+        } else {
+            target_y += 20.0;
+        }
+
+        let total_h = self.pages.last().map(|p| p.top_y + p.height).unwrap_or(0.0) * self.zoom;
+        let min_scroll = -(total_h - self.window_size.height as f32 + 100.0).max(0.0);
+        self.scroll_y = target_y.clamp(min_scroll, 100.0);
+        self.target_scroll_y = self.scroll_y;
+        if let Some(w) = self.window.as_ref() {
+            w.request_redraw();
+        }
     }
 
     fn draw_text(&self, pixmap: &mut Pixmap, text: &str, start_x: f32, y: f32, size: f32, font: &FontVec, paint: &Paint) {
@@ -310,8 +443,73 @@ impl App {
         let width = self.window_size.width as f32;
         let height = self.window_size.height as f32;
 
-        let overlay_width = 360.0;
-        let overlay_height = 72.0;
+        let menu_btn_x = 30.0;
+        let menu_btn_y = height - 100.0 - 30.0;
+        let menu_btn_w = 84.0;
+        let menu_btn_h = 100.0;
+
+        if self.left_menu_open {
+            let menu_w = 364.0;
+            let menu_h = 448.0;
+            let menu_x = 30.0;
+            let menu_y = height - 100.0 - 30.0 - menu_h - 10.0;
+
+            if mx >= menu_x && mx <= menu_x + menu_w && my >= menu_y && my <= menu_y + menu_h {
+                let item_h = menu_h / 8.0;
+                let idx = ((my - menu_y) / item_h).floor() as u8;
+                return 10 + idx.clamp(0, 7);
+            }
+        }
+
+        if mx >= menu_btn_x && mx <= menu_btn_x + menu_btn_w && my >= menu_btn_y && my <= menu_btn_y + menu_btn_h {
+            return 9; // Menu toggle button
+        }
+
+        // Check bottom-center pagination overlay
+        let pag_overlay_width = 372.0;
+        let pag_overlay_height = 100.0;
+        let pag_overlay_x = (width - pag_overlay_width) / 2.0;
+        let pag_overlay_y = height - pag_overlay_height - 30.0;
+
+        let is_pag_focused = mx >= pag_overlay_x - 30.0
+            && mx <= pag_overlay_x + pag_overlay_width + 30.0
+            && my >= pag_overlay_y - 30.0
+            && my <= pag_overlay_y + pag_overlay_height + 30.0;
+
+        if is_pag_focused {
+            let btn_y_local = 12.0;
+            let btn_size = 76.0;
+
+            // Prev button: starts at 12.0
+            let prev_x = pag_overlay_x + 12.0;
+            if mx >= prev_x && mx <= prev_x + btn_size 
+                && my >= pag_overlay_y + btn_y_local && my <= pag_overlay_y + btn_y_local + btn_size 
+            {
+                return 21;
+            }
+
+            // Next button: starts at 284.0
+            let next_x = pag_overlay_x + 284.0;
+            if mx >= next_x && mx <= next_x + btn_size 
+                && my >= pag_overlay_y + btn_y_local && my <= pag_overlay_y + btn_y_local + btn_size 
+            {
+                return 22;
+            }
+
+            // Editable text area: starts at 100.0 to 180.0
+            let edit_x = pag_overlay_x + 100.0;
+            let edit_w = 80.0;
+            if mx >= edit_x && mx <= edit_x + edit_w 
+                && my >= pag_overlay_y + btn_y_local && my <= pag_overlay_y + btn_y_local + btn_size 
+            {
+                return 23;
+            }
+
+            return 20; // Pagination overlay focused but no button hovered
+        }
+
+        let overlay_width = 504.0;
+        let overlay_height = 100.0;
         let overlay_x = width - overlay_width - 30.0;
         let overlay_y = height - overlay_height - 30.0;
 
@@ -324,23 +522,23 @@ impl App {
             return 0;
         }
 
-        let btn_y = overlay_y + 9.0;
-        let btn_size = 54.0;
+        let btn_y = overlay_y + 12.0;
+        let btn_size = 76.0;
 
         // Minus button
-        let minus_x = overlay_x + 15.0;
+        let minus_x = overlay_x + 20.0;
         if mx >= minus_x && mx <= minus_x + btn_size && my >= btn_y && my <= btn_y + btn_size {
             return 2;
         }
 
         // Plus button
-        let plus_x = overlay_x + 222.0;
+        let plus_x = overlay_x + 306.0;
         if mx >= plus_x && mx <= plus_x + btn_size && my >= btn_y && my <= btn_y + btn_size {
             return 3;
         }
 
         // Reset button
-        let reset_x = overlay_x + 291.0;
+        let reset_x = overlay_x + 408.0;
         if mx >= reset_x && mx <= reset_x + btn_size && my >= btn_y && my <= btn_y + btn_size {
             return 4;
         }
@@ -496,12 +694,7 @@ impl App {
             return;
         }
 
-        // Compute horizontal layout (all pages same width, centered)
-        let page_w_f = self.pages[0].width * self.zoom;
-        let page_x0 = ((width as f32 - page_w_f) / 2.0).round() as i32;
-        let left_w = page_x0.max(0) as usize; // width of left gray strip
-        let page_right = (page_x0 + page_w_f.round() as i32).min(width as i32).max(0) as usize;
-        let right_w = width.saturating_sub(page_right); // width of right gray strip
+        buffer.fill(bg);
 
         // Binary search: skip pages entirely above viewport
         let first_visible = {
@@ -515,32 +708,15 @@ impl App {
             lo
         };
 
-        // cursor_y tracks which screen row we've rendered up to
-        let mut cursor_y: usize = 0;
-
-        // Helper: fill rows [row_start, row_end) with bg (left+right strips) and `mid_fill` in center
-        let fill_rows = |buf: &mut [u32], row_start: usize, row_end: usize, mid_fill: u32| {
-            for row in row_start..row_end {
-                let base = row * width;
-                // left strip
-                buf[base..base + left_w].fill(bg);
-                // center
-                if left_w < page_right {
-                    buf[base + left_w..base + page_right].fill(mid_fill);
-                }
-                // right strip
-                if page_right < width {
-                    buf[base + page_right..base + width].fill(bg);
-                }
-            }
-        };
-
         let mut next_non_visible = page_count;
         for page_idx in first_visible..page_count {
             let page = &self.pages[page_idx];
             let page_h_f = page.height * self.zoom;
             let page_y = (self.scroll_y + page.top_y * self.zoom).round() as i32;
             let page_h = page_h_f.round() as i32;
+
+            let page_w_f = page.width * self.zoom;
+            let page_x0 = ((width as f32 / 2.0) + (page.center_x_offset * self.zoom) - (page_w_f / 2.0)).round() as i32;
 
             // Send pre-fetch request if not cached
             if (self.zoom - self.rendered_zoom).abs() < 0.001 {
@@ -565,92 +741,61 @@ impl App {
                 }
             }
 
-            // Stop once page is fully below viewport
             if page_y >= height as i32 {
-                fill_rows(&mut buffer, cursor_y, height, bg);
-                cursor_y = height;
                 next_non_visible = page_idx;
                 break;
             }
 
-            // Fill gap between cursor_y and top of this page
-            let gap_end = (page_y as usize).min(height);
-            if gap_end > cursor_y {
-                fill_rows(&mut buffer, cursor_y, gap_end, bg);
-                cursor_y = gap_end;
-            }
-
-            // Row range of the page that is visible on screen
-            let src_y_start = (-page_y).max(0) as usize; // first row of src pixmap to draw
-            let dst_y_start = page_y.max(0) as usize;    // first screen row
+            let src_y_start = (-page_y).max(0) as usize;
+            let dst_y_start = page_y.max(0) as usize;
             let dst_y_end = (page_y + page_h).min(height as i32).max(0) as usize;
 
-            // Blit page from cache (or placeholder)
+            let src_x_start_page = (-page_x0).max(0) as usize;
+            let dst_x_start = page_x0.max(0) as usize;
+            let dst_x_end = (page_x0 + page_w_f.round() as i32).min(width as i32).max(0) as usize;
+            let copy_w = if dst_x_end > dst_x_start { dst_x_end - dst_x_start } else { 0 };
+
             let image_cache = self.page_images.borrow();
             if let Some(cached_page) = image_cache.get(&page_idx) {
                 self.record_access_only(page_idx);
                 if (cached_page.zoom - self.zoom).abs() < 0.001 {
-                    // Fast path: direct copy
+                    // Fast path
                     let src_bytes = cached_page.pixmap.data();
                     let src_w = cached_page.pixmap.width() as usize;
 
-                    // Clamp horizontal copy range
-                    let src_x_start = (-page_x0).max(0) as usize;
-                    let src_x_end = (page_w_f.round() as i32).min(width as i32 - page_x0).max(0) as usize;
-                    let dst_x_start = page_x0.max(0) as usize;
-                    let copy_w = if src_x_end > src_x_start { src_x_end - src_x_start } else { 0 };
-
                     let src_u32: &[u32] = unsafe {
-                        std::slice::from_raw_parts(
-                            src_bytes.as_ptr() as *const u32,
-                            src_bytes.len() / 4,
-                        )
+                        std::slice::from_raw_parts(src_bytes.as_ptr() as *const u32, src_bytes.len() / 4)
                     };
 
                     for dst_row in dst_y_start..dst_y_end {
                         let src_row = src_y_start + (dst_row - dst_y_start);
                         let base = dst_row * width;
-
-                        if left_w > 0 { buffer[base..base + left_w].fill(bg); }
-
+                        
                         if copy_w > 0 {
-                            let src_start = src_row * src_w + src_x_start;
+                            let src_start = src_row * src_w + src_x_start_page;
                             let src_slice = &src_u32[src_start..src_start + copy_w];
                             let dst_slice = &mut buffer[base + dst_x_start..base + dst_x_start + copy_w];
                             for (d, &s) in dst_slice.iter_mut().zip(src_slice.iter()) {
                                 *d = ((s & 0x000000FF) << 16) | (s & 0x0000FF00) | ((s & 0x00FF0000) >> 16);
                             }
                         }
-
-                        if right_w > 0 { buffer[base + page_right..base + width].fill(bg); }
                     }
                 } else {
-                    // Slow path: stretch/scale the old pixmap to target size without allocations
+                    // Slow path
                     let inv_scale = cached_page.zoom / self.zoom;
-                    
                     let src_bytes = cached_page.pixmap.data();
                     let src_w = cached_page.pixmap.width() as usize;
                     let src_h = cached_page.pixmap.height() as usize;
 
                     if src_w > 0 && src_h > 0 {
                         let src_u32: &[u32] = unsafe {
-                            std::slice::from_raw_parts(
-                                src_bytes.as_ptr() as *const u32,
-                                src_bytes.len() / 4,
-                            )
+                            std::slice::from_raw_parts(src_bytes.as_ptr() as *const u32, src_bytes.len() / 4)
                         };
-
-                        let src_x_start_page = (-page_x0).max(0) as usize;
-                        let dst_x_start = page_x0.max(0) as usize;
-                        let dst_x_end = (page_x0 + page_w_f.round() as i32).min(width as i32).max(0) as usize;
-                        let copy_w = if dst_x_end > dst_x_start { dst_x_end - dst_x_start } else { 0 };
                         let src_w_sub = src_w.saturating_sub(1);
                         let src_h_sub = src_h.saturating_sub(1);
 
                         for dst_row in dst_y_start..dst_y_end {
                             let base = dst_row * width;
-                            if left_w > 0 { buffer[base..base + left_w].fill(bg); }
-                            
                             if copy_w > 0 {
                                 let y_in_page = (src_y_start + (dst_row - dst_y_start)) as f32;
                                 let src_y = ((y_in_page * inv_scale) as usize).min(src_h_sub);
@@ -666,24 +811,20 @@ impl App {
                                     src_x_frac += inv_scale;
                                 }
                             }
-                            
-                            if right_w > 0 { buffer[base + page_right..base + width].fill(bg); }
                         }
                     } else {
-                        fill_rows(&mut buffer, dst_y_start, dst_y_end, white);
+                        for dst_row in dst_y_start..dst_y_end {
+                            let base = dst_row * width;
+                            if copy_w > 0 { buffer[base + dst_x_start..base + dst_x_start + copy_w].fill(white); }
+                        }
                     }
                 }
             } else {
-                // White placeholder while page renders
-                fill_rows(&mut buffer, dst_y_start, dst_y_end, white);
+                for dst_row in dst_y_start..dst_y_end {
+                    let base = dst_row * width;
+                    if copy_w > 0 { buffer[base + dst_x_start..base + dst_x_start + copy_w].fill(white); }
+                }
             }
-
-            cursor_y = dst_y_end;
-        }
-
-        // Fill any remaining rows below last page
-        if cursor_y < height {
-            fill_rows(&mut buffer, cursor_y, height, bg);
         }
 
         // Send pre-fetch requests for pages around the viewport (Asymmetric margin)
@@ -754,16 +895,16 @@ impl App {
         }
 
         // Overlay UI (zoom buttons) - rendered with tiny-skia only when mouse is near it
-        let overlay_width = 360.0f32;
-        let overlay_height = 72.0f32;
+        let overlay_width = 504.0f32;
+        let overlay_height = 100.0f32;
         let overlay_x = width as f32 - overlay_width - 30.0;
         let overlay_y = height as f32 - overlay_height - 30.0;
 
         let hover_state = self.get_hover_state(self.mouse_pos.0, self.mouse_pos.1);
-        let is_overlay_focused = hover_state > 0;
+        let show_overlays = hover_state > 0 || self.page_input_active;
 
-        if is_overlay_focused {
-            // Render overlay to a small pixmap, then composite into buffer
+        if show_overlays {
+            // 1. Draw bottom-right zoom overlay
             let ow = (overlay_width + 4.0) as u32;
             let oh = (overlay_height + 4.0) as u32;
             let ox_px = (overlay_x - 2.0).max(0.0) as usize;
@@ -771,14 +912,11 @@ impl App {
 
             if let Some(mut ovl) = Pixmap::new(ow, oh) {
                 let font = &self.default_font.clone();
-
                 let mut bg_paint = Paint::default();
                 bg_paint.set_color_rgba8(25, 25, 25, 220);
-
                 let mut border_p = Paint::default();
                 border_p.set_color_rgba8(100, 100, 100, 255);
 
-                // Background + border
                 if let Some(border_r) = Rect::from_xywh(0.0, 0.0, ow as f32, oh as f32) {
                     ovl.fill_rect(border_r, &border_p, Transform::identity(), None);
                 }
@@ -786,8 +924,8 @@ impl App {
                     ovl.fill_rect(inner_r, &bg_paint, Transform::identity(), None);
                 }
 
-                let btn_y_local = 9.0f32;
-                let btn_size = 54.0f32;
+                let btn_y_local = 12.0f32;
+                let btn_size = 76.0f32;
 
                 let draw_btn = |ovl: &mut Pixmap, x: f32, label: &str, hovered: bool| {
                     let mut p = Paint::default();
@@ -796,25 +934,21 @@ impl App {
                         ovl.fill_rect(r, &p, Transform::identity(), None);
                     }
                     let mut tp = Paint::default(); tp.set_color_rgba8(255, 255, 255, 255); tp.anti_alias = true;
-                    let tw = self.measure_text_width(label, 26.0, font);
-                    self.draw_text(ovl, label, x + (btn_size - tw) / 2.0, btn_y_local + 37.0, 26.0, font, &tp);
+                    let tw = self.measure_text_width(label, 36.0, font);
+                    self.draw_text(ovl, label, x + (btn_size - tw) / 2.0, btn_y_local + 52.0, 36.0, font, &tp);
                 };
 
-                let minus_x = 15.0f32;
-                let plus_x = 222.0f32;
-                let reset_x = 291.0f32;
-                draw_btn(&mut ovl, minus_x, "-", hover_state == 2);
-                draw_btn(&mut ovl, plus_x, "+", hover_state == 3);
-                draw_btn(&mut ovl, reset_x, "R", hover_state == 4);
+                draw_btn(&mut ovl, 20.0, "-", hover_state == 2);
+                draw_btn(&mut ovl, 306.0, "+", hover_state == 3);
+                draw_btn(&mut ovl, 408.0, "R", hover_state == 4);
 
                 let current_fit_zoom = self.calculate_fit_zoom(width as u32, height as u32);
                 let zoom_pct = format!("{:.0}%", (self.zoom / current_fit_zoom) * 100.0);
                 let mut lp = Paint::default(); lp.set_color_rgba8(255, 255, 255, 255); lp.anti_alias = true;
-                let lw = self.measure_text_width(&zoom_pct, 24.0, font);
-                let lx = 69.0 + (153.0 - lw) / 2.0;
-                self.draw_text(&mut ovl, &zoom_pct, lx, btn_y_local + 36.0, 24.0, font, &lp);
+                let lw = self.measure_text_width(&zoom_pct, 32.0, font);
+                let lx = 96.0 + (210.0 - lw) / 2.0;
+                self.draw_text(&mut ovl, &zoom_pct, lx, btn_y_local + 48.0, 32.0, font, &lp);
 
-                // Composite overlay pixmap into buffer with R/B swap
                 let ovl_data = ovl.data();
                 let ovl_u32: &[u32] = unsafe {
                     std::slice::from_raw_parts(ovl_data.as_ptr() as *const u32, ovl_data.len() / 4)
@@ -830,21 +964,277 @@ impl App {
                         if a == 0 { continue; }
                         let dst_idx = dst_row * width + dst_col;
                         if a == 255 {
-                            // Fully opaque: direct copy
                             buffer[dst_idx] = ((s & 0xFF) << 16) | (s & 0xFF00) | ((s >> 16) & 0xFF);
                         } else {
-                            // Alpha blend
                             let inv_a = 255 - a;
                             let bg_val = buffer[dst_idx];
-                            let sr = s & 0xFF;
-                            let sg = (s >> 8) & 0xFF;
-                            let sb = (s >> 16) & 0xFF;
-                            let br = (bg_val >> 16) & 0xFF;
-                            let bg_g = (bg_val >> 8) & 0xFF;
-                            let bb = bg_val & 0xFF;
-                            let nr = (sr * a + br * inv_a) / 255;
-                            let ng = (sg * a + bg_g * inv_a) / 255;
-                            let nb = (sb * a + bb * inv_a) / 255;
+                            let sr = s & 0xFF; let sg = (s >> 8) & 0xFF; let sb = (s >> 16) & 0xFF;
+                            let br = (bg_val >> 16) & 0xFF; let bg_g = (bg_val >> 8) & 0xFF; let bb = bg_val & 0xFF;
+                            let nr = (sr * a + br * inv_a) / 255; let ng = (sg * a + bg_g * inv_a) / 255; let nb = (sb * a + bb * inv_a) / 255;
+                            buffer[dst_idx] = (nr << 16) | (ng << 8) | nb;
+                        }
+                    }
+                }
+            }
+
+            // 2. Draw bottom-center pagination overlay
+            let pag_overlay_width = 372.0f32;
+            let pag_overlay_height = 100.0f32;
+            let pag_overlay_x = (width as f32 - pag_overlay_width) / 2.0;
+            let pag_overlay_y = height as f32 - pag_overlay_height - 30.0f32;
+
+            let tow = (pag_overlay_width + 4.0) as u32;
+            let toh = (pag_overlay_height + 4.0) as u32;
+            let tox_px = (pag_overlay_x - 2.0).max(0.0) as usize;
+            let toy_px = (pag_overlay_y - 2.0).max(0.0) as usize;
+
+            if let Some(mut tovl) = Pixmap::new(tow, toh) {
+                let font = &self.default_font.clone();
+                let mut bg_paint = Paint::default();
+                bg_paint.set_color_rgba8(25, 25, 25, 220);
+                let mut border_p = Paint::default();
+                border_p.set_color_rgba8(100, 100, 100, 255);
+
+                if let Some(border_r) = Rect::from_xywh(0.0, 0.0, tow as f32, toh as f32) {
+                    tovl.fill_rect(border_r, &border_p, Transform::identity(), None);
+                }
+                if let Some(inner_r) = Rect::from_xywh(1.0, 1.0, tow as f32 - 2.0, toh as f32 - 2.0) {
+                    tovl.fill_rect(inner_r, &bg_paint, Transform::identity(), None);
+                }
+
+                let btn_y_local = 12.0f32;
+                let btn_size = 76.0f32;
+
+                let draw_nav_btn = |ovl: &mut Pixmap, x: f32, direction_left: bool, hovered: bool| {
+                    let mut p = Paint::default();
+                    p.set_color_rgba8(if hovered { 70 } else { 40 }, if hovered { 70 } else { 40 }, if hovered { 70 } else { 40 }, 255);
+                    if let Some(r) = Rect::from_xywh(x, btn_y_local, btn_size, btn_size) {
+                        ovl.fill_rect(r, &p, Transform::identity(), None);
+                    }
+                    
+                    let mut pb = PathBuilder::new();
+                    if direction_left {
+                        pb.move_to(x + 42.5, btn_y_local + 24.0);
+                        pb.line_to(x + 28.5, btn_y_local + 38.0);
+                        pb.line_to(x + 42.5, btn_y_local + 52.0);
+                        pb.line_to(x + 47.5, btn_y_local + 52.0);
+                        pb.line_to(x + 33.5, btn_y_local + 38.0);
+                        pb.line_to(x + 47.5, btn_y_local + 24.0);
+                    } else {
+                        pb.move_to(x + 33.5, btn_y_local + 24.0);
+                        pb.line_to(x + 47.5, btn_y_local + 38.0);
+                        pb.line_to(x + 33.5, btn_y_local + 52.0);
+                        pb.line_to(x + 28.5, btn_y_local + 52.0);
+                        pb.line_to(x + 42.5, btn_y_local + 38.0);
+                        pb.line_to(x + 28.5, btn_y_local + 24.0);
+                    }
+                    pb.close();
+                    
+                    if let Some(path) = pb.finish() {
+                        let mut tp = Paint::default();
+                        tp.set_color_rgba8(255, 255, 255, 255);
+                        tp.anti_alias = true;
+                        ovl.fill_path(&path, &tp, FillRule::Winding, Transform::identity(), None);
+                    }
+                };
+
+                // Previous page button `<`
+                draw_nav_btn(&mut tovl, 12.0, true, hover_state == 21);
+
+                // Next page button `>`
+                draw_nav_btn(&mut tovl, 284.0, false, hover_state == 22);
+
+                // Editable page input box background
+                let mut input_bg = Paint::default();
+                if self.page_input_active {
+                    input_bg.set_color_rgba8(35, 35, 35, 255);
+                } else if hover_state == 23 {
+                    input_bg.set_color_rgba8(30, 30, 30, 255);
+                } else {
+                    input_bg.set_color_rgba8(15, 15, 15, 255);
+                }
+                
+                let input_x = 100.0f32;
+                let input_w = 80.0f32;
+
+                let mut input_border = Paint::default();
+                if self.page_input_active {
+                    input_border.set_color_rgba8(100, 180, 255, 255); // blue highlight when active
+                } else {
+                    input_border.set_color_rgba8(100, 100, 100, 255);
+                }
+
+                if let Some(r) = Rect::from_xywh(input_x, btn_y_local, input_w, btn_size) {
+                    tovl.fill_rect(r, &input_border, Transform::identity(), None);
+                }
+                if let Some(r) = Rect::from_xywh(input_x + 1.0, btn_y_local + 1.0, input_w - 2.0, btn_size - 2.0) {
+                    tovl.fill_rect(r, &input_bg, Transform::identity(), None);
+                }
+
+                // Get page text to show
+                let page_text = if self.page_input_active {
+                    self.page_input_text.clone()
+                } else {
+                    (self.get_current_page_idx() + 1).to_string()
+                };
+
+                // Draw page text with optional cursor
+                let mut text_to_draw = page_text;
+                if self.page_input_active {
+                    text_to_draw.push('|');
+                }
+
+                let mut lp = Paint::default(); lp.set_color_rgba8(255, 255, 255, 255); lp.anti_alias = true;
+                let lw = self.measure_text_width(&text_to_draw, 32.0, font);
+                let lx = input_x + (input_w - lw) / 2.0;
+                self.draw_text(&mut tovl, &text_to_draw, lx, btn_y_local + 48.0, 32.0, font, &lp);
+
+                // Draw "/ total" label
+                let total_text = format!("/ {}", self.pages.len());
+                let mut tp = Paint::default(); tp.set_color_rgba8(180, 180, 180, 255); tp.anti_alias = true;
+                let total_x = 192.0f32;
+                let total_w = 80.0f32;
+                let tw = self.measure_text_width(&total_text, 32.0, font);
+                let t_lx = total_x + (total_w - tw) / 2.0;
+                self.draw_text(&mut tovl, &total_text, t_lx, btn_y_local + 48.0, 32.0, font, &tp);
+
+                let tovl_data = tovl.data();
+                let tovl_u32: &[u32] = unsafe {
+                    std::slice::from_raw_parts(tovl_data.as_ptr() as *const u32, tovl_data.len() / 4)
+                };
+                for row in 0..toh as usize {
+                    let dst_row = toy_px + row;
+                    if dst_row >= height { break; }
+                    for col in 0..tow as usize {
+                        let dst_col = tox_px + col;
+                        if dst_col >= width { break; }
+                        let s = tovl_u32[row * tow as usize + col];
+                        let a = (s >> 24) & 0xFF;
+                        if a == 0 { continue; }
+                        let dst_idx = dst_row * width + dst_col;
+                        if a == 255 {
+                            buffer[dst_idx] = ((s & 0xFF) << 16) | (s & 0xFF00) | ((s >> 16) & 0xFF);
+                        } else {
+                            let inv_a = 255 - a;
+                            let bg_val = buffer[dst_idx];
+                            let sr = s & 0xFF; let sg = (s >> 8) & 0xFF; let sb = (s >> 16) & 0xFF;
+                            let br = (bg_val >> 16) & 0xFF; let bg_g = (bg_val >> 8) & 0xFF; let bb = bg_val & 0xFF;
+                            let nr = (sr * a + br * inv_a) / 255; let ng = (sg * a + bg_g * inv_a) / 255; let nb = (sb * a + bb * inv_a) / 255;
+                            buffer[dst_idx] = (nr << 16) | (ng << 8) | nb;
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Left Menu Overlay ---
+        let _menu_btn_x = 30.0f32;
+        let menu_btn_y = height as f32 - 100.0 - 30.0;
+        let menu_btn_w = 84.0f32;
+        let menu_btn_h = 100.0f32;
+        
+        let menu_w = 364.0f32;
+        let menu_h = 448.0f32;
+        let menu_x = 30.0f32;
+        let menu_y = height as f32 - 100.0 - 30.0 - menu_h - 10.0;
+
+        let left_ow = menu_w as u32 + 4;
+        let left_oh = (menu_btn_y + menu_btn_h - menu_y) as u32 + 4;
+
+        if hover_state >= 9 || self.left_menu_open {
+            if let Some(mut lovl) = Pixmap::new(left_ow, left_oh) {
+                let font = &self.default_font.clone();
+                let mut bg_paint = Paint::default();
+                bg_paint.set_color_rgba8(25, 25, 25, 220);
+                let mut border_p = Paint::default();
+                border_p.set_color_rgba8(100, 100, 100, 255);
+
+                let btn_rect_y = menu_btn_y - menu_y;
+                if let Some(r) = Rect::from_xywh(0.0, btn_rect_y, menu_btn_w, menu_btn_h) {
+                    lovl.fill_rect(r, &border_p, Transform::identity(), None);
+                }
+                if let Some(r) = Rect::from_xywh(1.0, btn_rect_y + 1.0, menu_btn_w - 2.0, menu_btn_h - 2.0) {
+                    let mut p = bg_paint.clone();
+                    if hover_state == 9 { p.set_color_rgba8(70, 70, 70, 255); }
+                    lovl.fill_rect(r, &p, Transform::identity(), None);
+                }
+                
+                let mut icon_p = Paint::default(); icon_p.set_color_rgba8(255, 255, 255, 255);
+                for i in 0..3 {
+                    if let Some(r) = Rect::from_xywh(21.0, btn_rect_y + 34.0 + i as f32 * 12.0, 42.0, 6.0) {
+                        lovl.fill_rect(r, &icon_p, Transform::identity(), None);
+                    }
+                }
+
+                if self.left_menu_open {
+                    if let Some(r) = Rect::from_xywh(0.0, 0.0, menu_w, menu_h) {
+                        lovl.fill_rect(r, &border_p, Transform::identity(), None);
+                    }
+                    if let Some(r) = Rect::from_xywh(1.0, 1.0, menu_w - 2.0, menu_h - 2.0) {
+                        lovl.fill_rect(r, &bg_paint, Transform::identity(), None);
+                    }
+
+                    let items = [
+                        "Single-page view",
+                        "Two-page view",
+                        "Enable scrolling",
+                        "Actual size",
+                        "Zoom to page level",
+                        "Fit to width",
+                        "Fit height",
+                        "Fit visible content"
+                    ];
+
+                    let item_h = menu_h / 8.0;
+                    let mut text_p = Paint::default(); text_p.set_color_rgba8(255, 255, 255, 255); text_p.anti_alias = true;
+                    
+                    for (i, text) in items.iter().enumerate() {
+                        let y = i as f32 * item_h;
+                        if hover_state == 10 + i as u8 {
+                            let mut hp = Paint::default(); hp.set_color_rgba8(70, 70, 70, 255);
+                            if let Some(r) = Rect::from_xywh(1.0, y + 1.0, menu_w - 2.0, item_h - 2.0) {
+                                lovl.fill_rect(r, &hp, Transform::identity(), None);
+                            }
+                        }
+                        
+                        // Highlight selected layout mode
+                        if (i == 0 && self.layout_mode == LayoutMode::SinglePage) ||
+                           (i == 1 && self.layout_mode == LayoutMode::TwoPage) ||
+                           (i == 2 && self.layout_mode == LayoutMode::Continuous) {
+                            let mut ind_p = Paint::default(); ind_p.set_color_rgba8(100, 200, 255, 255);
+                            if let Some(r) = Rect::from_xywh(8.0, y + item_h / 2.0 - 6.0, 12.0, 12.0) {
+                                lovl.fill_rect(r, &ind_p, Transform::identity(), None);
+                            }
+                        }
+                        
+                        self.draw_text(&mut lovl, text, 28.0, y + 38.0, 28.0, font, &text_p);
+                    }
+                }
+
+                let ox_px = menu_x as usize;
+                let oy_px = menu_y as usize;
+                let lovl_data = lovl.data();
+                let lovl_u32: &[u32] = unsafe {
+                    std::slice::from_raw_parts(lovl_data.as_ptr() as *const u32, lovl_data.len() / 4)
+                };
+                for row in 0..left_oh as usize {
+                    let dst_row = oy_px + row;
+                    if dst_row >= height { break; }
+                    for col in 0..left_ow as usize {
+                        let dst_col = ox_px + col;
+                        if dst_col >= width { break; }
+                        let s = lovl_u32[row * left_ow as usize + col];
+                        let a = (s >> 24) & 0xFF;
+                        if a == 0 { continue; }
+                        let dst_idx = dst_row * width + dst_col;
+                        if a == 255 {
+                            buffer[dst_idx] = ((s & 0xFF) << 16) | (s & 0xFF00) | ((s >> 16) & 0xFF);
+                        } else {
+                            let inv_a = 255 - a;
+                            let bg_val = buffer[dst_idx];
+                            let sr = s & 0xFF; let sg = (s >> 8) & 0xFF; let sb = (s >> 16) & 0xFF;
+                            let br = (bg_val >> 16) & 0xFF; let bg_g = (bg_val >> 8) & 0xFF; let bb = bg_val & 0xFF;
+                            let nr = (sr * a + br * inv_a) / 255; let ng = (sg * a + bg_g * inv_a) / 255; let nb = (sb * a + bb * inv_a) / 255;
                             buffer[dst_idx] = (nr << 16) | (ng << 8) | nb;
                         }
                     }
@@ -942,7 +1332,31 @@ impl ApplicationHandler for App {
             }
             WindowEvent::MouseInput { state: winit::event::ElementState::Pressed, button: winit::event::MouseButton::Left, .. } => {
                 let hover = self.get_hover_state(self.mouse_pos.0, self.mouse_pos.1);
-                if hover > 1 {
+                
+                if self.page_input_active && hover != 23 {
+                    self.page_input_active = false;
+                    if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                }
+
+                if hover == 9 {
+                    self.left_menu_open = !self.left_menu_open;
+                    if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                } else if hover >= 10 && hover <= 17 {
+                    self.left_menu_open = false;
+                    let idx = hover - 10;
+                    match idx {
+                        0 => { self.layout_mode = LayoutMode::SinglePage; self.recalculate_layout(); }
+                        1 => { self.layout_mode = LayoutMode::TwoPage; self.recalculate_layout(); }
+                        2 => { self.layout_mode = LayoutMode::Continuous; self.recalculate_layout(); }
+                        3 => { self.set_target_zoom(1.0); } // Actual size
+                        4 => { let z = self.calculate_fit_height_zoom(self.window_size.height); self.set_target_zoom(z); } // Zoom to page level
+                        5 => { let z = self.calculate_fit_width_zoom(self.window_size.width); self.set_target_zoom(z); } // Fit width
+                        6 => { let z = self.calculate_fit_height_zoom(self.window_size.height); self.set_target_zoom(z); } // Fit height
+                        7 => { let z = self.calculate_fit_width_zoom(self.window_size.width) * 1.1; self.set_target_zoom(z); } // Fit visible content
+                        _ => {}
+                    }
+                } else if hover > 1 && hover < 9 {
+                    self.left_menu_open = false;
                     let old_zoom = self.zoom;
                     let new_zoom = match hover {
                         2 => (old_zoom / 1.1).clamp(0.1, 10.0),
@@ -951,18 +1365,29 @@ impl ApplicationHandler for App {
                         _ => old_zoom,
                     };
                     if (new_zoom - old_zoom).abs() > 0.0001 {
-                        let actual_factor = new_zoom / old_zoom;
-                        self.zoom = new_zoom;
-                        self.last_zoom_change_time = std::time::Instant::now();
-                        let cx = self.window_size.width as f32 / 2.0;
-                        let cy = self.window_size.height as f32 / 2.0;
-                        self.scroll_x = self.scroll_x * actual_factor + cx * (1.0 - actual_factor);
-                        self.scroll_y = self.scroll_y * actual_factor + cy * (1.0 - actual_factor);
-                        self.target_scroll_x = self.scroll_x;
-                        self.target_scroll_y = self.scroll_y;
-                        if let Some(window) = self.window.as_ref() {
-                            window.request_redraw();
-                        }
+                        self.set_target_zoom(new_zoom);
+                    }
+                } else if hover == 21 {
+                    self.left_menu_open = false;
+                    let current_idx = self.get_current_page_idx();
+                    if current_idx > 0 {
+                        self.jump_to_page(current_idx - 1);
+                    }
+                } else if hover == 22 {
+                    self.left_menu_open = false;
+                    let current_idx = self.get_current_page_idx();
+                    if current_idx + 1 < self.pages.len() {
+                        self.jump_to_page(current_idx + 1);
+                    }
+                } else if hover == 23 {
+                    self.left_menu_open = false;
+                    self.page_input_active = true;
+                    self.page_input_text = (self.get_current_page_idx() + 1).to_string();
+                    if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                } else {
+                    if self.left_menu_open {
+                        self.left_menu_open = false;
+                        if let Some(window) = self.window.as_ref() { window.request_redraw(); }
                     }
                 }
             }
@@ -1000,13 +1425,13 @@ impl ApplicationHandler for App {
                                 let old_zoom = self.zoom;
                                 let factor = if pos.y > 0.0 { 1.02 } else { 1.0 / 1.02 };
                                 let new_zoom = (old_zoom * factor).clamp(0.1, 10.0);
-                                let actual_factor = new_zoom / old_zoom;
-                                self.zoom = new_zoom;
-                                self.last_zoom_change_time = std::time::Instant::now();
-                                let mx = self.mouse_pos.0;
-                                let my = self.mouse_pos.1;
-                                self.scroll_x = self.scroll_x * actual_factor + mx * (1.0 - actual_factor);
-                                self.scroll_y = self.scroll_y * actual_factor + my * (1.0 - actual_factor);
+                                  let actual_factor = new_zoom / old_zoom;
+                                  self.zoom = new_zoom;
+                                  self.last_zoom_change_time = std::time::Instant::now();
+                                  let mx = self.mouse_pos.0;
+                                  let my = self.mouse_pos.1;
+                                  self.scroll_x = self.scroll_x * actual_factor + mx * (1.0 - actual_factor);
+                                  self.scroll_y = self.scroll_y * actual_factor + my * (1.0 - actual_factor);
                             } else {
                                 self.scroll_y = (self.scroll_y + pos.y as f32).clamp(min_scroll, max_scroll);
                             }
@@ -1018,39 +1443,78 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => if let Some(window) = self.window.clone() { self.draw(&window); },
-            WindowEvent::KeyboardInput { event: winit::event::KeyEvent { physical_key: winit::keyboard::PhysicalKey::Code(code), .. }, .. } => {
-                match code {
-                    winit::keyboard::KeyCode::ArrowUp => {
-                        let total_h = self.pages.last().map(|p| p.top_y + p.height).unwrap_or(0.0) * self.zoom;
-                        let min_scroll = -(total_h - self.window_size.height as f32 + 100.0).max(0.0);
-                        self.scroll_y = (self.scroll_y + 200.0).clamp(min_scroll, 100.0);
-                        self.target_scroll_y = self.scroll_y;
+            WindowEvent::KeyboardInput { event, .. } => {
+                if event.state == winit::event::ElementState::Pressed {
+                    if self.page_input_active {
+                        match &event.logical_key {
+                            winit::keyboard::Key::Named(winit::keyboard::NamedKey::Backspace) => {
+                                self.page_input_text.pop();
+                                if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                                return;
+                            }
+                            winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter) => {
+                                if let Ok(page_num) = self.page_input_text.trim().parse::<usize>() {
+                                    if page_num > 0 && page_num <= self.pages.len() {
+                                        self.jump_to_page(page_num - 1);
+                                    }
+                                }
+                                self.page_input_active = false;
+                                if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                                return;
+                            }
+                            winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape) => {
+                                self.page_input_active = false;
+                                if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                                return;
+                            }
+                            winit::keyboard::Key::Character(c_str) => {
+                                if c_str.len() == 1 && c_str.chars().next().unwrap().is_ascii_digit() {
+                                    if self.page_input_text.len() < 5 {
+                                        self.page_input_text.push_str(c_str);
+                                    }
+                                }
+                                if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                                return;
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
+                            match code {
+                                winit::keyboard::KeyCode::ArrowUp => {
+                                    let total_h = self.pages.last().map(|p| p.top_y + p.height).unwrap_or(0.0) * self.zoom;
+                                    let min_scroll = -(total_h - self.window_size.height as f32 + 100.0).max(0.0);
+                                    self.scroll_y = (self.scroll_y + 200.0).clamp(min_scroll, 100.0);
+                                    self.target_scroll_y = self.scroll_y;
+                                }
+                                winit::keyboard::KeyCode::ArrowDown => {
+                                    let total_h = self.pages.last().map(|p| p.top_y + p.height).unwrap_or(0.0) * self.zoom;
+                                    let min_scroll = -(total_h - self.window_size.height as f32 + 100.0).max(0.0);
+                                    self.scroll_y = (self.scroll_y - 200.0).clamp(min_scroll, 100.0);
+                                    self.target_scroll_y = self.scroll_y;
+                                }
+                                winit::keyboard::KeyCode::Digit0 if self.modifiers.control_key() => {
+                                    let old_zoom = self.zoom;
+                                    let new_zoom = self.calculate_fit_zoom(self.window_size.width, self.window_size.height);
+                                    let actual_factor = new_zoom / old_zoom;
+                                    self.zoom = new_zoom;
+                                    self.last_zoom_change_time = std::time::Instant::now();
+                                    let cx = self.window_size.width as f32 / 2.0;
+                                    let cy = self.window_size.height as f32 / 2.0;
+                                    self.scroll_x = self.scroll_x * actual_factor + cx * (1.0 - actual_factor);
+                                    self.scroll_y = self.scroll_y * actual_factor + cy * (1.0 - actual_factor);
+                                    self.target_scroll_x = self.scroll_x;
+                                    self.target_scroll_y = self.scroll_y;
+                                }
+                                winit::keyboard::KeyCode::KeyC => {
+                                    self.center_on_content(self.window_size.width, self.window_size.height);
+                                }
+                                _ => {}
+                            }
+                            if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                        }
                     }
-                    winit::keyboard::KeyCode::ArrowDown => {
-                        let total_h = self.pages.last().map(|p| p.top_y + p.height).unwrap_or(0.0) * self.zoom;
-                        let min_scroll = -(total_h - self.window_size.height as f32 + 100.0).max(0.0);
-                        self.scroll_y = (self.scroll_y - 200.0).clamp(min_scroll, 100.0);
-                        self.target_scroll_y = self.scroll_y;
-                    }
-                    winit::keyboard::KeyCode::Digit0 if self.modifiers.control_key() => {
-                        let old_zoom = self.zoom;
-                        let new_zoom = self.calculate_fit_zoom(self.window_size.width, self.window_size.height);
-                        let actual_factor = new_zoom / old_zoom;
-                        self.zoom = new_zoom;
-                        self.last_zoom_change_time = std::time::Instant::now();
-                        let cx = self.window_size.width as f32 / 2.0;
-                        let cy = self.window_size.height as f32 / 2.0;
-                        self.scroll_x = self.scroll_x * actual_factor + cx * (1.0 - actual_factor);
-                        self.scroll_y = self.scroll_y * actual_factor + cy * (1.0 - actual_factor);
-                        self.target_scroll_x = self.scroll_x;
-                        self.target_scroll_y = self.scroll_y;
-                    }
-                    winit::keyboard::KeyCode::KeyC => {
-                        self.center_on_content(self.window_size.width, self.window_size.height);
-                    }
-                    _ => (),
                 }
-                if let Some(window) = self.window.as_ref() { window.request_redraw(); }
             }
             _ => (),
         }
@@ -1271,6 +1735,10 @@ impl Gui {
             zoom_initialized: false,
             default_font,
             logo_pixmap: Pixmap::load_png("logo.png").ok(),
+            layout_mode: LayoutMode::Continuous,
+            left_menu_open: false,
+            page_input_active: false,
+            page_input_text: String::new(),
         };
         event_loop.run_app(&mut app)?;
         Ok(())
