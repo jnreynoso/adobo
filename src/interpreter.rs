@@ -36,12 +36,14 @@ impl GraphicsState {
     }
 }
 
+#[derive(Clone)]
 pub enum PdfEncoding {
     WinAnsi,
     MacRoman,
     Custom(HashMap<u32, char>),
 }
 
+#[derive(Clone)]
 pub struct Interpreter {
     pub font_encodings: HashMap<String, PdfEncoding>,
     pub font_widths: HashMap<String, HashMap<u32, f32>>,
@@ -161,14 +163,30 @@ impl Interpreter {
         out
     }
 
-    pub fn process(&self, page_idx: usize, content_stream: &[u8], page_rect: crate::parser::PageRect) -> Vec<DrawCommand> {
+    pub fn process(
+        &self,
+        page_idx: usize,
+        content_stream: &[u8],
+        page_rect: crate::parser::PageRect,
+        render_epoch: Option<&std::sync::atomic::AtomicUsize>,
+        current_epoch: Option<usize>,
+    ) -> Option<Vec<DrawCommand>> {
         let mut commands = Vec::new();
         let mut state = GraphicsState::new();
         let mut state_stack = Vec::new();
         let mut tokens: Vec<Vec<u8>> = Vec::new();
         let mut i = 0;
+        let mut loop_counter = 0;
         
         while i < content_stream.len() {
+            loop_counter += 1;
+            if loop_counter % 200 == 0 {
+                if let (Some(epoch), Some(curr)) = (render_epoch, current_epoch) {
+                    if epoch.load(std::sync::atomic::Ordering::Relaxed) != curr {
+                        return None;
+                    }
+                }
+            }
             let b = content_stream[i];
             match b {
                 b'(' => {
@@ -222,7 +240,16 @@ impl Interpreter {
         }
 
         let mut idx = 0;
+        let mut loop_counter2 = 0;
         while idx < tokens.len() {
+            loop_counter2 += 1;
+            if loop_counter2 % 200 == 0 {
+                if let (Some(epoch), Some(curr)) = (render_epoch, current_epoch) {
+                    if epoch.load(std::sync::atomic::Ordering::Relaxed) != curr {
+                        return None;
+                    }
+                }
+            }
             let token_str = String::from_utf8_lossy(&tokens[idx]);
             match token_str.as_ref() {
                 "q" => {
@@ -350,7 +377,7 @@ impl Interpreter {
             }
             idx += 1;
         }
-        commands
+        Some(commands)
     }
 }
 

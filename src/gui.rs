@@ -10,6 +10,7 @@ use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use ab_glyph::{FontVec, Font};
 use crate::interpreter::DrawCommand;
 use crate::object::PdfObject;
@@ -30,7 +31,15 @@ pub enum LayoutMode {
     Continuous,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RenderPriority {
+    High,
+    Low,
+}
+
 pub struct RenderRequest {
+    pub epoch: usize,
+    pub priority: RenderPriority,
     pub page_idx: usize,
     pub zoom: f32,
     pub page_y: f32,
@@ -43,6 +52,10 @@ pub enum WorkerMessage {
         page_idx: usize,
         zoom: f32,
         pixmap: Pixmap,
+    },
+    PageRenderAborted {
+        page_idx: usize,
+        zoom: f32,
     },
 }
 
@@ -61,6 +74,7 @@ struct App {
     page_access_order: RefCell<std::collections::VecDeque<usize>>,
     tx_worker: std::sync::mpsc::Sender<RenderRequest>,
     rx_worker: std::sync::mpsc::Receiver<WorkerMessage>,
+    render_epoch: Arc<AtomicUsize>,
     scroll_x: f32,
     scroll_y: f32,
     target_scroll_x: f32,
@@ -253,6 +267,10 @@ impl App {
 
     fn jump_to_page(&mut self, idx: usize) {
         if idx >= self.pages.len() { return; }
+        
+        self.render_epoch.fetch_add(1, Ordering::SeqCst);
+        self.requested_pages.borrow_mut().clear();
+        
         let page = &self.pages[idx];
         let mut target_y = -page.top_y * self.zoom;
         
@@ -588,6 +606,7 @@ impl App {
         // (Handled automatically on page insertion via record_access_and_evict)
 
         let page_count = self.pages.len();
+        let epoch = self.render_epoch.load(Ordering::SeqCst);
 
         let is_loading = self.page_images.borrow().is_empty();
         if page_count > 0 && is_loading {
@@ -624,6 +643,8 @@ impl App {
                         let page_y = (self.scroll_y + page.top_y * self.zoom).round() as i32;
                         let page_h = page_h_f.round() as i32;
                         self.tx_worker.send(RenderRequest {
+                            epoch,
+                            priority: RenderPriority::High,
                             page_idx: idx,
                             zoom: self.zoom,
                             page_y: page_y as f32,
@@ -652,6 +673,8 @@ impl App {
                         let page_y = (self.scroll_y + page.top_y * self.zoom).round() as i32;
                         let page_h = page_h_f.round() as i32;
                         self.tx_worker.send(RenderRequest {
+                            epoch,
+                            priority: RenderPriority::Low,
                             page_idx: idx,
                             zoom: self.zoom,
                             page_y: page_y as f32,
@@ -670,6 +693,8 @@ impl App {
                         let page_y = (self.scroll_y + page.top_y * self.zoom).round() as i32;
                         let page_h = page_h_f.round() as i32;
                         self.tx_worker.send(RenderRequest {
+                            epoch,
+                            priority: RenderPriority::Low,
                             page_idx: idx,
                             zoom: self.zoom,
                             page_y: page_y as f32,
@@ -730,6 +755,8 @@ impl App {
                     let mut requested = self.requested_pages.borrow_mut();
                     if !requested.contains(&(page_idx, zoom_key)) {
                         self.tx_worker.send(RenderRequest {
+                            epoch,
+                            priority: RenderPriority::High,
                             page_idx,
                             zoom: self.zoom,
                             page_y: page_y as f32,
@@ -855,6 +882,8 @@ impl App {
                         let page_y = (self.scroll_y + page.top_y * self.zoom).round() as i32;
                         let page_h = page_h_f.round() as i32;
                         self.tx_worker.send(RenderRequest {
+                            epoch,
+                            priority: RenderPriority::Low,
                             page_idx: idx,
                             zoom: self.zoom,
                             page_y: page_y as f32,
@@ -882,6 +911,8 @@ impl App {
                         let page_y = (self.scroll_y + page.top_y * self.zoom).round() as i32;
                         let page_h = page_h_f.round() as i32;
                         self.tx_worker.send(RenderRequest {
+                            epoch,
+                            priority: RenderPriority::Low,
                             page_idx: idx,
                             zoom: self.zoom,
                             page_y: page_y as f32,
@@ -1532,6 +1563,7 @@ impl ApplicationHandler for App {
         }
 
         let mut got_any = false;
+        let epoch = self.render_epoch.load(Ordering::SeqCst);
         while let Ok(msg) = self.rx_worker.try_recv() {
             match msg {
                 WorkerMessage::PageRendered { page_idx, zoom, pixmap } => {
@@ -1542,6 +1574,11 @@ impl ApplicationHandler for App {
                         self.requested_pages.borrow_mut().remove(&(page_idx, zoom_key));
                         got_any = true;
                     }
+                }
+                WorkerMessage::PageRenderAborted { page_idx, zoom } => {
+                    let zoom_key = (zoom * 1000.0) as u32;
+                    self.requested_pages.borrow_mut().remove(&(page_idx, zoom_key));
+                    got_any = true;
                 }
             }
         }
@@ -1699,8 +1736,12 @@ impl Gui {
         let pdf_path_clone = self.pdf_path.clone();
         let worker_fonts = loaded_fonts.clone();
         let worker_default_font = default_font.clone();
+        let epoch_clone = Arc::new(AtomicUsize::new(0));
+        let epoch_clone2 = epoch_clone.clone();
+        
         std::thread::spawn(move || {
             run_worker_thread(
+                epoch_clone,
                 pdf_path_clone,
                 worker_fonts,
                 worker_default_font,
@@ -1720,6 +1761,7 @@ impl Gui {
             page_access_order: RefCell::new(std::collections::VecDeque::new()),
             tx_worker,
             rx_worker,
+            render_epoch: epoch_clone2,
             scroll_x: 0.0,
             scroll_y: 0.0,
             target_scroll_x: 0.0,
@@ -1746,6 +1788,7 @@ impl Gui {
 }
 
 fn run_worker_thread(
+    render_epoch: Arc<AtomicUsize>,
     pdf_path: String,
     fonts: std::collections::HashMap<String, Arc<FontVec>>,
     default_font: Arc<FontVec>,
@@ -1868,22 +1911,13 @@ fn run_worker_thread(
     let interpreter = crate::interpreter::Interpreter::new(font_encodings, font_widths, fallback_char_widths, font_names);
     
     // Worker cache for page commands and compiled paths
-    let mut page_commands_cache = std::collections::HashMap::new();
-    let mut page_paths_cache: std::collections::HashMap<(usize, &'static str), Option<Path>> = std::collections::HashMap::new();
+    let page_commands_cache = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+    let page_paths_cache: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<(usize, &'static str), Option<Path>>>> = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
 
     let font_keys = [
         "serif_regular", "serif_bold", "serif_italic", "serif_bold_italic",
         "sans_regular", "sans_bold", "sans_italic", "mono_regular"
     ];
-
-    let select_font_and_key = |basefont: &str| -> (&Arc<FontVec>, &'static str) {
-        let key = map_font_name(basefont);
-        if fonts.contains_key(key) {
-            (&fonts[key], key)
-        } else {
-            (&default_font, "default")
-        }
-    };
 
     let mut local_queue: Vec<RenderRequest> = Vec::new();
 
@@ -1915,6 +1949,10 @@ fn run_worker_thread(
 
         // Sort requests: closest to viewport center first (distance to viewport boundary)
         local_queue.sort_by(|a, b| {
+            let prio_cmp = b.priority.cmp(&a.priority);
+            if prio_cmp != std::cmp::Ordering::Equal {
+                return prio_cmp;
+            }
             let dist_a = get_distance_to_viewport(a.page_y, a.page_height, a.window_height);
             let dist_b = get_distance_to_viewport(b.page_y, b.page_height, b.window_height);
             dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
@@ -1924,21 +1962,71 @@ fn run_worker_thread(
             continue;
         }
 
-        // Process the highest priority request (index 0)
-        let request = local_queue.remove(0);
-        let page_idx = request.page_idx;
-        let zoom = request.zoom;
+        let requests_to_process = std::mem::take(&mut local_queue);
+        for request in requests_to_process {
+            let page_idx = request.page_idx;
+            let zoom = request.zoom;
+            let current_epoch = render_epoch.load(Ordering::Relaxed);
+            if request.epoch < current_epoch {
+                continue;
+            }
 
-        // 1. Get or parse page commands
-        let commands = page_commands_cache.entry(page_idx).or_insert_with(|| {
+            let page_commands_cache = page_commands_cache.clone();
+            let page_paths_cache = page_paths_cache.clone();
+            let tx_response = tx_response.clone();
+            let proxy = proxy.clone();
+            let render_epoch = render_epoch.clone();
+            let mut parser = parser.clone();
+            let interpreter = interpreter.clone();
+            let font_keys = font_keys.clone();
+            let fonts = fonts.clone();
+            let default_font = default_font.clone();
+
+            rayon::spawn(move || {
+                let select_font_and_key = |basefont: &str| -> (&Arc<FontVec>, &'static str) {
+                    let key = map_font_name(basefont);
+                    if fonts.contains_key(key) {
+                        (&fonts[key], key)
+                    } else {
+                        (&default_font, "default")
+                    }
+                };
+
+                let start_time = std::time::Instant::now();
+                let render_completed = 'render: {
+                let commands = {
+                    let cache = page_commands_cache.lock().unwrap();
+                    cache.get(&page_idx).cloned()
+                };
+                let commands = if let Some(cmds) = commands {
+            cmds
+        } else {
+            if render_epoch.load(Ordering::Relaxed) != current_epoch {
+                break 'render false;
+            }
             let page_rect = parser.get_page_rect(page_idx).unwrap_or(crate::parser::PageRect {
                 x: 0.0, y: 0.0, width: 595.0, height: 842.0
             });
-            match parser.get_page_content(page_idx) {
-                Ok(content) => interpreter.process(page_idx, &content, page_rect),
+            let parsed_cmds = match parser.get_page_content(page_idx) {
+                Ok(content) => {
+                    if render_epoch.load(Ordering::Relaxed) != current_epoch {
+                        break 'render false;
+                    }
+                    if let Some(cmds) = interpreter.process(page_idx, &content, page_rect, Some(&render_epoch), Some(current_epoch)) {
+                        cmds
+                    } else {
+                        break 'render false;
+                    }
+                }
                 Err(_) => Vec::new(),
+            };
+            if render_epoch.load(Ordering::Relaxed) != current_epoch {
+                break 'render false;
             }
-        });
+            let mut cache = page_commands_cache.lock().unwrap();
+            cache.insert(page_idx, parsed_cmds.clone());
+            parsed_cmds
+        };
 
         let page_rect = parser.get_page_rect(page_idx).unwrap_or(crate::parser::PageRect {
             x: 0.0, y: 0.0, width: 595.0, height: 842.0
@@ -1946,12 +2034,18 @@ fn run_worker_thread(
 
         // 2. Build font paths for this page if not cached
         for &font_key in &font_keys {
-            let has_path = page_paths_cache.contains_key(&(page_idx, font_key));
+            let has_path = {
+                let cache = page_paths_cache.lock().unwrap();
+                cache.contains_key(&(page_idx, font_key))
+            };
             if !has_path {
                 let mut path_builder = PathBuilder::new();
                 let mut has_glyphs = false;
 
                 for cmd in commands.iter() {
+                    if render_epoch.load(Ordering::Relaxed) != current_epoch {
+                        break 'render false;
+                    }
                     let DrawCommand::Text { chars, local_y, size, font_name, .. } = cmd;
                     let (_, cmd_font_key) = select_font_and_key(font_name);
                     if cmd_font_key != font_key { continue; }
@@ -2036,7 +2130,8 @@ fn run_worker_thread(
                 } else {
                     None
                 };
-                page_paths_cache.insert((page_idx, font_key), path_opt);
+                let mut cache = page_paths_cache.lock().unwrap();
+                cache.insert((page_idx, font_key), path_opt);
             }
         }
 
@@ -2055,9 +2150,13 @@ fn run_worker_thread(
                 text_paint.anti_alias = true;
 
                 for &font_key in &font_keys {
-                    if let Some(Some(p)) = page_paths_cache.get(&(page_idx, font_key)) {
+                    let path_opt = {
+                        let cache = page_paths_cache.lock().unwrap();
+                        cache.get(&(page_idx, font_key)).cloned().flatten()
+                    };
+                    if let Some(p) = path_opt {
                         let transform = Transform::from_scale(zoom, zoom);
-                        page_pixmap.fill_path(p, &text_paint, FillRule::Winding, transform, None);
+                        page_pixmap.fill_path(&p, &text_paint, FillRule::Winding, transform, None);
                     }
                 }
 
@@ -2070,8 +2169,24 @@ fn run_worker_thread(
 
                 // Wake up GUI event loop
                 proxy.send_event(()).ok();
+                println!("Page {} rendered in {} ms", page_idx, start_time.elapsed().as_millis());
             }
         }
+        true
+        }; // end 'render
+
+        if !render_completed {
+            {
+                let mut cache = page_paths_cache.lock().unwrap();
+                for &font_key in &font_keys {
+                    cache.remove(&(page_idx, font_key));
+                }
+            }
+            tx_response.send(WorkerMessage::PageRenderAborted { page_idx, zoom }).ok();
+            proxy.send_event(()).ok();
+        }
+        }); // end rayon::spawn
+        } // end for request in requests_to_process
     }
 }
 

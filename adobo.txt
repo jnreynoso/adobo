@@ -1,0 +1,78 @@
+Es una excelente observación. Tienes toda la razón: en equipos modernos, Adobe Reader (y los visores de Chrome o Edge) se sienten tan instantáneos que parece que tuvieran todo el documento cargado en la memoria RAM desde el segundo uno.
+
+Sin embargo, **no aumentes el número de precarga masivamente**, al menos no con tu arquitectura actual. Si cambias la precarga de 2 a 10 páginas, lo que vas a provocar es una **saturación de la CPU (CPU Starvation)**. Tu único hilo *Worker* se pasará la vida procesando páginas del "futuro" que quizás el usuario ni vea, haciendo que cuando realmente se necesite una página con urgencia, el sistema responda más lento.
+
+¿Cuál es el truco de magia de Adobe? Adobe no carga todo el documento como imágenes; eso destruiría la RAM con un PDF de 1,000 páginas llenas de gráficos. Lo que hace es usar tecnologías de bajo nivel que tú, al estar programando en **Rust**, tienes la oportunidad perfecta de implementar.
+
+Aquí tienes las verdaderas razones de esa velocidad instantánea y cómo llevar tu lector a ese nivel:
+
+---
+
+## 1. De la CPU a la GPU (El verdadero salto de rendimiento)
+
+Actualmente estás usando `tiny-skia` para pintar. `tiny-skia` es un motor de software extraordinario y muy rápido, pero **ejecuta los cálculos en la CPU**. La CPU procesa los vectores y las fuentes de manera mayoritariamente secuencial (hilo por hilo).
+
+### Cómo lo hace Adobe:
+
+Adobe Reader delega el dibujo de los vectores a la tarjeta gráfica (**GPU**). La GPU está diseñada para procesar millones de operaciones matemáticas en paralelo.
+
+### Tu camino en Rust:
+
+Si quieres que las páginas carguen en microsegundos sin importar el zoom, el siguiente paso evolutivo de tu Milestone 4 es migrar el renderizado a la GPU. En el ecosistema de Rust hay un proyecto revolucionario llamado **Vello** (desarrollado por la organización Linebender) o puedes usar directamente **Wgpu**.
+
+* **Vello** es un rasterizador vectorial experimental acelerado por GPU. En lugar de calcular las curvas de las letras en la CPU y pasárselas a la pantalla, le envías las fórmulas matemáticas directamente a la tarjeta de video. El tiempo de renderizado pasa de 100ms en CPU a **2ms** en GPU.
+
+---
+
+## 2. Un "Worker Pool" en lugar de un solo Worker (`rayon`)
+
+Mencionaste en tu arquitectura que tienes "El Hilo de Trabajo (Worker)" en singular. Si tienes un solo hilo para el procesamiento pesado, estás desperdiciando los 4, 8 o 16 núcleos que tiene tu procesador.
+
+### Cómo lo hace Adobe:
+
+Divide el procesamiento del documento en múltiples hilos en paralelo.
+
+### Tu solución en Rust:
+
+Sustituye tu hilo Worker único por un **Thread Pool** (un grupo de hilos de trabajo). En Rust, la librería reina para esto es `rayon`.
+
+* Si tienes un margen de precarga de 2 páginas arriba y 2 abajo, no las proceses una detrás de otra en fila india. Con `rayon`, puedes lanzar las 4 peticiones en paralelo. Si tu procesador tiene múltiples núcleos, procesará las 4 páginas *al mismo tiempo*.
+* Al hacer esto, **ahora sí podrías aumentar ligeramente la precarga** (quizás a 4 arriba y 4 abajo) porque tienes un ejército de hilos trabajando en paralelo en lugar de un solo soldado.
+
+---
+
+## 3. Memory-Mapping (`memmap2`)
+
+Si tu Worker vuelve a abrir el archivo `.pdf` desde el disco duro o hace operaciones de lectura secuenciales (`std::fs::File::read`) cada vez que cambia el `render_epoch`, el cuello de botella es el sistema de archivos del sistema operativo.
+
+### Cómo lo hace Adobe:
+
+Adobe mapea el archivo completo en la memoria virtual del sistema operativo nada más abrirlo.
+
+### Tu solución en Rust:
+
+Usa el crate `memmap2`. En lugar de leer el archivo, le pides al sistema operativo que mapee los bytes del PDF directamente en el espacio de memoria de tu programa:
+
+```rust
+use memmap2::Mmap;
+use std::fs::File;
+
+let file = File::open("reporte.pdf")?;
+let mmap = unsafe { Mmap::map(&file)? };
+// Ahora 'mmap' se comporta como un enorme slice de bytes &[u8] en RAM
+
+```
+
+Esto hace que tu **Parser (Milestone 1)** acceda a cualquier tabla XREF o stream de cualquier página de forma instantánea a nivel de hardware, eliminando cualquier latencia de lectura de disco (I/O).
+
+---
+
+## Resumen: ¿Qué deberías hacer con tu código?
+
+No satures tu software aumentando la precarga a ciegas. Si quieres experimentar la fluidez extrema de Adobe, hazlo en este orden:
+
+1. **Implementa `memmap2`:** Asegúrate de que el acceso a los bytes en crudo del PDF sea instantáneo. Es un cambio de menos de 10 líneas de código.
+2. **Transforma tu Worker en un Pool (`rayon`):** Haz que las páginas de precarga se procesen en paralelo aprovechando todos los núcleos de tu procesador.
+3. **Mide los tiempos en modo Release:** Monitorea cuántos milisegundos exactos tarda tu Worker actual por página.
+
+De estas optimizaciones a nivel de sistemas, ¿has revisado con algún perfilador o con `std::time::Instant` cuántos milisegundos exactos le cuesta a tu Worker procesar una página promedio cuando compilas en modo `--release`?

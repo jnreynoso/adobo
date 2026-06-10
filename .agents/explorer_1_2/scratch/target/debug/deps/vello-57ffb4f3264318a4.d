@@ -1,0 +1,12 @@
+C:\Users\jreyn\OneDrive\Documents\Projects\ufreader\.agents\explorer_1_2\scratch\target\debug\deps\vello-57ffb4f3264318a4.d: C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\lib.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\debug.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\recording.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\render.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\scene.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\shaders.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\util.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\wgpu_engine.rs
+
+C:\Users\jreyn\OneDrive\Documents\Projects\ufreader\.agents\explorer_1_2\scratch\target\debug\deps\libvello-57ffb4f3264318a4.rmeta: C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\lib.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\debug.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\recording.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\render.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\scene.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\shaders.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\util.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\wgpu_engine.rs
+
+C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\lib.rs:
+C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\debug.rs:
+C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\recording.rs:
+C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\render.rs:
+C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\scene.rs:
+C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\shaders.rs:
+C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\util.rs:
+C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\vello-0.9.0\src\wgpu_engine.rs:

@@ -1,8 +1,18 @@
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Cursor};
+use memmap2::Mmap;
+use std::sync::Arc;
 use crate::object::PdfObject;
 use std::collections::{HashMap, HashSet};
 use flate2::read::ZlibDecoder;
+
+#[derive(Clone)]
+pub struct SharedMmap(pub Arc<Mmap>);
+impl AsRef<[u8]> for SharedMmap {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct PageRect {
@@ -19,8 +29,9 @@ enum XrefEntry {
     Compressed(u32, u32), // container_id, index
 }
 
+#[derive(Clone)]
 pub struct Parser {
-    file: File,
+    file: Cursor<SharedMmap>,
     xref: HashMap<u32, XrefEntry>,
     trailer: HashMap<String, PdfObject>,
     visited_offsets: HashSet<u64>,
@@ -30,8 +41,10 @@ pub struct Parser {
 impl Parser {
     pub fn new(path: &str) -> io::Result<Self> {
         let file = File::open(path)?;
+        let mmap = unsafe { Mmap::map(&file)? };
+        let cursor = Cursor::new(SharedMmap(Arc::new(mmap)));
         Ok(Parser { 
-            file,
+            file: cursor,
             xref: HashMap::new(),
             trailer: HashMap::new(),
             visited_offsets: HashSet::new(),
@@ -40,7 +53,7 @@ impl Parser {
     }
 
     pub fn find_startxref(&mut self) -> io::Result<u64> {
-        let file_size = self.file.metadata()?.len();
+        let file_size = self.file.get_ref().0.len() as u64;
         let buffer_size = 1024.min(file_size) as usize;
         let mut buffer = vec![0; buffer_size];
         self.file.seek(SeekFrom::End(-(buffer_size as i64)))?;
@@ -105,7 +118,7 @@ impl Parser {
         } else {
             self.file.seek(SeekFrom::Start(offset))?;
             Self::skip_object_header(&mut self.file)?;
-            let mut clone = self.file.try_clone()?;
+            let mut clone = self.file.clone();
             let obj = self.resolve_maybe_stream(&mut clone)?;
             if let PdfObject::Stream(dict, data) = obj {
                 if let Some(PdfObject::Name(name)) = dict.get("Type") {
@@ -177,7 +190,7 @@ impl Parser {
             })?;
             let resolved = match entry {
                 XrefEntry::Normal(offset) => {
-                    let mut reader = self.file.try_clone()?;
+                    let mut reader = self.file.clone();
                     reader.seek(SeekFrom::Start(offset))?;
                     Self::skip_object_header(&mut reader)?;
                     self.resolve_maybe_stream(&mut reader)?

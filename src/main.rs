@@ -1,11 +1,12 @@
 mod object;
-mod parser;
-mod gui;
-mod interpreter;
+pub mod parser;
+pub mod gui;
+pub mod gui_vello;
+pub mod interpreter;
 
 use std::env;
 use parser::Parser;
-use gui::Gui;
+use gui_vello::Gui;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -53,7 +54,7 @@ fn main() {
                 width: 595.0,
                 height: 842.0,
             });
-            pages_info.push(gui::PageInfo {
+            pages_info.push(gui_vello::PageInfo {
                 width: page_rect.width,
                 height: page_rect.height,
                 top_y: current_top_y,
@@ -64,8 +65,48 @@ fn main() {
     }
 
     println!("\nLaunching GUI...");
-    let gui = Gui::new(pdf_path.clone(), pages_info);
+    let (logo_rgba, logo_w, logo_h, window_icon) = load_logo_and_icon();
+    let gui = Gui::new(pdf_path.clone(), pages_info, logo_rgba, logo_w, logo_h, window_icon);
     if let Err(e) = gui.run() {
         eprintln!("GUI Error: {}", e);
+    }
+}
+
+fn load_logo_and_icon() -> (Option<Vec<u8>>, u32, u32, Option<winit::window::Icon>) {
+    if let Ok(pixmap) = tiny_skia::Pixmap::load_png("logo.png") {
+        let logo_w = pixmap.width();
+        let logo_h = pixmap.height();
+        let logo_rgba = pixmap.data().to_vec();
+
+        // Generate window icon (64x64)
+        let target_size = 64;
+        let icon = if let Some(mut resized) = tiny_skia::Pixmap::new(target_size, target_size) {
+            let sx = target_size as f32 / logo_w as f32;
+            let sy = target_size as f32 / logo_h as f32;
+            let transform = tiny_skia::Transform::from_scale(sx, sy);
+            resized.draw_pixmap(
+                0, 0,
+                pixmap.as_ref(),
+                &tiny_skia::PixmapPaint::default(),
+                transform,
+                None
+            );
+            let mut rgba = resized.data().to_vec();
+            for pixel in rgba.chunks_exact_mut(4) {
+                let a = pixel[3];
+                if a > 0 && a < 255 {
+                    pixel[0] = ((pixel[0] as u16 * 255) / a as u16) as u8;
+                    pixel[1] = ((pixel[1] as u16 * 255) / a as u16) as u8;
+                    pixel[2] = ((pixel[2] as u16 * 255) / a as u16) as u8;
+                }
+            }
+            winit::window::Icon::from_rgba(rgba, target_size, target_size).ok()
+        } else {
+            None
+        };
+
+        (Some(logo_rgba), logo_w, logo_h, icon)
+    } else {
+        (None, 0, 0, None)
     }
 }

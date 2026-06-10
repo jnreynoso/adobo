@@ -1,0 +1,10 @@
+C:\Users\jreyn\OneDrive\Documents\Projects\ufreader\.agents\explorer_1_2\scratch\target\debug\deps\polycool-549e330022a0863f.d: C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\lib.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\cubic.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\poly.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\poly_dyn.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\quadratic.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\yuksel.rs
+
+C:\Users\jreyn\OneDrive\Documents\Projects\ufreader\.agents\explorer_1_2\scratch\target\debug\deps\libpolycool-549e330022a0863f.rmeta: C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\lib.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\cubic.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\poly.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\poly_dyn.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\quadratic.rs C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\yuksel.rs
+
+C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\lib.rs:
+C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\cubic.rs:
+C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\poly.rs:
+C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\poly_dyn.rs:
+C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\quadratic.rs:
+C:\Users\jreyn\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\polycool-0.4.0\src\yuksel.rs:

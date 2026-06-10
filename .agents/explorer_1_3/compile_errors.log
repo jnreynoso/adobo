@@ -1,0 +1,960 @@
+﻿C:\Users\jreyn\.cargo\bin\cargo.exe :     Blocking waiting for file lock on build directory
+At line:1 char:1
++ C:\Users\jreyn\.cargo\bin\cargo.exe check --bin ufreader *>&1 | Out-F ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Blocking wa...build directory:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    Checking ufreader v0.1.0 (C:\Users\jreyn\OneDrive\Documents\Projects\ufreader)
+error[E0432]: unresolved import `wgpu`
+ --> src\gui_vello.rs:8:5
+  |
+8 | use wgpu::{InstanceDescriptor, Backends, PowerPreference, RequestAdapterOptions, DeviceDescriptor, Features, Limits};
+  |     ^^^^
+  |
+help: a similar path exists
+  |
+8 | use vello::wgpu::{InstanceDescriptor, Backends, PowerPreference, RequestAdapterOptions, DeviceDescriptor, Features, Limits};
+  |     +++++++
+
+error[E0425]: cannot find type `Pixmap` in this scope
+  --> src\gui_vello.rs:95:25
+   |
+95 |     logo_pixmap: Option<Pixmap>,
+   |                         ^^^^^^ not found in this scope
+   |
+help: you might be missing a type parameter
+   |
+67 | pub struct App<Pixmap> {
+   |               ++++++++
+
+error[E0425]: cannot find value `buffer` in this scope
+   --> src\gui_vello.rs:631:42
+    |
+631 |             self.draw_splash_screen(&mut buffer, width, height);
+    |                                          ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+   --> src\gui_vello.rs:632:13
+    |
+632 |             buffer.present().ok();
+    |             ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+   --> src\gui_vello.rs:638:13
+    |
+638 |             buffer.fill(bg);
+    |             ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+   --> src\gui_vello.rs:639:13
+    |
+639 |             buffer.present().ok(); // present() consumes buffer
+    |             ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+   --> src\gui_vello.rs:644:9
+    |
+644 |         buffer.fill(bg);
+    |         ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+   --> src\gui_vello.rs:726:50
+    |
+726 | ...                   let dst_slice = &mut buffer[base + dst_x_start..base + dst_x_start + copy_w];
+    |                                            ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+   --> src\gui_vello.rs:753:54
+    |
+753 | ...                   let dst_slice = &mut buffer[base + dst_x_start..base + dst_x_start + copy_w];
+    |                                            ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+   --> src\gui_vello.rs:767:45
+    |
+767 | ...                   if copy_w > 0 { buffer[base + dst_x_start..base + dst_x_start + copy_w].fill(white); }
+    |                                       ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+   --> src\gui_vello.rs:774:37
+    |
+774 |                     if copy_w > 0 { buffer[base + dst_x_start..base + dst_x_start + copy_w].fill(white); }
+    |                                     ^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `Pixmap` in this scope
+   --> src\gui_vello.rs:883:43
+    |
+883 |                 let draw_btn = |ovl: &mut Pixmap, x: f32, label: &str, hovered: bool| {
+    |                                           ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+   --> src\gui_vello.rs:920:29
+    |
+920 | ...                   buffer[dst_idx] = ((s & 0xFF) << 16) | (s & 0xFF00) | ((s >> 16) & 0xFF);
+    |                       ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+   --> src\gui_vello.rs:923:42
+    |
+923 | ...                   let bg_val = buffer[dst_idx];
+    |                                    ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+   --> src\gui_vello.rs:927:29
+    |
+927 | ...                   buffer[dst_idx] = (nr << 16) | (ng << 8) | nb;
+    |                       ^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `Pixmap` in this scope
+   --> src\gui_vello.rs:961:47
+    |
+961 |                 let draw_nav_btn = |ovl: &mut Pixmap, x: f32, direction_left: bool, hovered: bool| {
+    |                                               ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+    --> src\gui_vello.rs:1069:29
+     |
+1069 | ...                   buffer[dst_idx] = ((s & 0xFF) << 16) | (s & 0xFF00) | ((s >> 16) & 0xFF);
+     |                       ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+    --> src\gui_vello.rs:1072:42
+     |
+1072 | ...                   let bg_val = buffer[dst_idx];
+     |                                    ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+    --> src\gui_vello.rs:1076:29
+     |
+1076 | ...                   buffer[dst_idx] = (nr << 16) | (ng << 8) | nb;
+     |                       ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+    --> src\gui_vello.rs:1184:29
+     |
+1184 | ...                   buffer[dst_idx] = ((s & 0xFF) << 16) | (s & 0xFF00) | ((s >> 16) & 0xFF);
+     |                       ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+    --> src\gui_vello.rs:1187:42
+     |
+1187 | ...                   let bg_val = buffer[dst_idx];
+     |                                    ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+    --> src\gui_vello.rs:1191:29
+     |
+1191 | ...                   buffer[dst_idx] = (nr << 16) | (ng << 8) | nb;
+     |                       ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `buffer` in this scope
+    --> src\gui_vello.rs:1198:25
+     |
+1198 |         if let Err(e) = buffer.present() { eprintln!("present: {}", e); }
+     |                         ^^^^^^ not found in this scope
+
+error[E0433]: cannot find type `Context` in this scope
+    --> src\gui_vello.rs:1220:33
+     |
+1220 |             let context = match Context::new(window.clone()) {
+     |                                 ^^^^^^^ use of undeclared type `Context`
+     |
+help: consider importing this struct
+     |
+   1 + use std::task::Context;
+     |
+
+error[E0433]: cannot find type `NonZeroU32` in this scope
+    --> src\gui_vello.rs:1259:50
+     |
+1259 |                     if let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
+     |                                                  ^^^^^^^^^^ use of undeclared type `NonZeroU32`
+     |
+help: consider importing this type alias
+     |
+   1 + use std::num::NonZeroU32;
+     |
+
+error[E0433]: cannot find type `NonZeroU32` in this scope
+    --> src\gui_vello.rs:1259:79
+     |
+1259 |                     if let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
+     |                                                                               ^^^^^^^^^^ use of undeclared type `NonZeroU32`
+     |
+help: consider importing this type alias
+     |
+   1 + use std::num::NonZeroU32;
+     |
+
+error[E0425]: cannot find type `Path` in this scope
+    --> src\gui_vello.rs:1840:115
+     |
+1840 | ...llections::HashMap<(usize, &'static str), Option<Path>>>> = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap...
+     |                                                     ^^^^ not found in this scope
+     |
+help: consider importing this struct
+     |
+   1 + use std::path::Path;
+     |
+
+warning: unused imports: `AaConfig`, `AaSupport`, `RendererOptions`, `Renderer`, and `peniko`
+ --> src\gui_vello.rs:7:20
+  |
+7 | use vello::{kurbo, peniko, Renderer, RendererOptions, Scene, AaConfig, AaSupport};
+  |                    ^^^^^^  ^^^^^^^^  ^^^^^^^^^^^^^^^         ^^^^^^^^  ^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::num::NonZeroUsize`
+ --> src\gui_vello.rs:9:5
+  |
+9 | use std::num::NonZeroUsize;
+  |     ^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: cannot find type `Pixmap` in this scope
+   --> src\gui_vello.rs:103:25
+    |
+103 |     if let Ok(pixmap) = Pixmap::load_png("logo.png") {
+    |                         ^^^^^^ use of undeclared type `Pixmap`
+
+error[E0433]: cannot find type `Pixmap` in this scope
+   --> src\gui_vello.rs:105:27
+    |
+105 |         let mut resized = Pixmap::new(target_size, target_size)?;
+    |                           ^^^^^^ use of undeclared type `Pixmap`
+
+error[E0433]: cannot find type `Transform` in this scope
+   --> src\gui_vello.rs:108:25
+    |
+108 |         let transform = Transform::from_scale(sx, sy);
+    |                         ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `PixmapPaint` in this scope
+   --> src\gui_vello.rs:112:14
+    |
+112 |             &PixmapPaint::default(),
+    |              ^^^^^^^^^^^ use of undeclared type `PixmapPaint`
+
+error[E0599]: no method named `render_to_surface` found for mutable reference `&mut Renderer` in the current scope
+   --> src\gui_vello.rs:506:18
+    |
+506 |         renderer.render_to_surface(
+    |         ---------^^^^^^^^^^^^^^^^^ method not found in `&mut Renderer`
+
+error[E0599]: no method named `draw_splash_screen` found for mutable reference `&mut gui_vello::App` in the current scope
+   --> src\gui_vello.rs:631:18
+    |
+631 |             self.draw_splash_screen(&mut buffer, width, height);
+    |                  ^^^^^^^^^^^^^^^^^^ method not found in `&mut gui_vello::App`
+
+error[E0609]: no field `pixmap` on type `&gui_vello::CachedPage`
+   --> src\gui_vello.rs:712:49
+    |
+712 |                     let src_bytes = cached_page.pixmap.data();
+    |                                                 ^^^^^^ unknown field
+    |
+    = note: available fields are: `scene`, `zoom`
+
+error[E0609]: no field `pixmap` on type `&gui_vello::CachedPage`
+   --> src\gui_vello.rs:713:45
+    |
+713 |                     let src_w = cached_page.pixmap.width() as usize;
+    |                                             ^^^^^^ unknown field
+    |
+    = note: available fields are: `scene`, `zoom`
+
+error[E0308]: mismatched types
+   --> src\gui_vello.rs:721:46
+    |
+721 |                         let base = dst_row * width;
+    |                                              ^^^^^ expected `usize`, found `u32`
+
+error[E0277]: cannot multiply `usize` by `u32`
+   --> src\gui_vello.rs:721:44
+    |
+721 |                         let base = dst_row * width;
+    |                                            ^ no implementation for `usize * u32`
+    |
+    = help: the trait `std::ops::Mul<u32>` is not implemented for `usize`
+    = help: the following other types implement trait `std::ops::Mul<Rhs>`:
+              `&usize` implements `std::ops::Mul<usize>`
+              `&usize` implements `std::ops::Mul`
+              `usize` implements `std::ops::Mul<&usize>`
+              `usize` implements `std::ops::Mul<zerocopy::byteorder::Usize<O>>`
+              `usize` implements `std::ops::Mul`
+
+error[E0609]: no field `pixmap` on type `&gui_vello::CachedPage`
+   --> src\gui_vello.rs:735:49
+    |
+735 |                     let src_bytes = cached_page.pixmap.data();
+    |                                                 ^^^^^^ unknown field
+    |
+    = note: available fields are: `scene`, `zoom`
+
+error[E0609]: no field `pixmap` on type `&gui_vello::CachedPage`
+   --> src\gui_vello.rs:736:45
+    |
+736 |                     let src_w = cached_page.pixmap.width() as usize;
+    |                                             ^^^^^^ unknown field
+    |
+    = note: available fields are: `scene`, `zoom`
+
+error[E0609]: no field `pixmap` on type `&gui_vello::CachedPage`
+   --> src\gui_vello.rs:737:45
+    |
+737 |                     let src_h = cached_page.pixmap.height() as usize;
+    |                                             ^^^^^^ unknown field
+    |
+    = note: available fields are: `scene`, `zoom`
+
+error[E0308]: mismatched types
+   --> src\gui_vello.rs:747:50
+    |
+747 | ...                   let base = dst_row * width;
+    |                                            ^^^^^ expected `usize`, found `u32`
+
+error[E0277]: cannot multiply `usize` by `u32`
+   --> src\gui_vello.rs:747:48
+    |
+747 | ...                   let base = dst_row * width;
+    |                                          ^ no implementation for `usize * u32`
+    |
+    = help: the trait `std::ops::Mul<u32>` is not implemented for `usize`
+    = help: the following other types implement trait `std::ops::Mul<Rhs>`:
+              `&usize` implements `std::ops::Mul<usize>`
+              `&usize` implements `std::ops::Mul`
+              `usize` implements `std::ops::Mul<&usize>`
+              `usize` implements `std::ops::Mul<zerocopy::byteorder::Usize<O>>`
+              `usize` implements `std::ops::Mul`
+
+error[E0308]: mismatched types
+   --> src\gui_vello.rs:766:50
+    |
+766 | ...                   let base = dst_row * width;
+    |                                            ^^^^^ expected `usize`, found `u32`
+
+error[E0277]: cannot multiply `usize` by `u32`
+   --> src\gui_vello.rs:766:48
+    |
+766 | ...                   let base = dst_row * width;
+    |                                          ^ no implementation for `usize * u32`
+    |
+    = help: the trait `std::ops::Mul<u32>` is not implemented for `usize`
+    = help: the following other types implement trait `std::ops::Mul<Rhs>`:
+              `&usize` implements `std::ops::Mul<usize>`
+              `&usize` implements `std::ops::Mul`
+              `usize` implements `std::ops::Mul<&usize>`
+              `usize` implements `std::ops::Mul<zerocopy::byteorder::Usize<O>>`
+              `usize` implements `std::ops::Mul`
+
+error[E0308]: mismatched types
+   --> src\gui_vello.rs:773:42
+    |
+773 |                     let base = dst_row * width;
+    |                                          ^^^^^ expected `usize`, found `u32`
+
+error[E0277]: cannot multiply `usize` by `u32`
+   --> src\gui_vello.rs:773:40
+    |
+773 |                     let base = dst_row * width;
+    |                                        ^ no implementation for `usize * u32`
+    |
+    = help: the trait `std::ops::Mul<u32>` is not implemented for `usize`
+    = help: the following other types implement trait `std::ops::Mul<Rhs>`:
+              `&usize` implements `std::ops::Mul<usize>`
+              `&usize` implements `std::ops::Mul`
+              `usize` implements `std::ops::Mul<&usize>`
+              `usize` implements `std::ops::Mul<zerocopy::byteorder::Usize<O>>`
+              `usize` implements `std::ops::Mul`
+
+error[E0433]: cannot find type `Pixmap` in this scope
+   --> src\gui_vello.rs:866:36
+    |
+866 |             if let Some(mut ovl) = Pixmap::new(ow, oh) {
+    |                                    ^^^^^^ use of undeclared type `Pixmap`
+
+error[E0433]: cannot find type `Paint` in this scope
+   --> src\gui_vello.rs:868:36
+    |
+868 |                 let mut bg_paint = Paint::default();
+    |                                    ^^^^^ use of undeclared type `Paint`
+
+error[E0433]: cannot find type `Paint` in this scope
+   --> src\gui_vello.rs:870:36
+    |
+870 |                 let mut border_p = Paint::default();
+    |                                    ^^^^^ use of undeclared type `Paint`
+
+error[E0433]: cannot find type `Rect` in this scope
+   --> src\gui_vello.rs:873:41
+    |
+873 |                 if let Some(border_r) = Rect::from_xywh(0.0, 0.0, ow as f32, oh as f32) {
+    |                                         ^^^^ use of undeclared type `Rect`
+
+error[E0433]: cannot find type `Transform` in this scope
+   --> src\gui_vello.rs:874:56
+    |
+874 |                     ovl.fill_rect(border_r, &border_p, Transform::identity(), None);
+    |                                                        ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `Rect` in this scope
+   --> src\gui_vello.rs:876:40
+    |
+876 |                 if let Some(inner_r) = Rect::from_xywh(1.0, 1.0, ow as f32 - 2.0, oh as f32 - 2.0) {
+    |                                        ^^^^ use of undeclared type `Rect`
+
+error[E0433]: cannot find type `Transform` in this scope
+   --> src\gui_vello.rs:877:55
+    |
+877 |                     ovl.fill_rect(inner_r, &bg_paint, Transform::identity(), None);
+    |                                                       ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `Paint` in this scope
+   --> src\gui_vello.rs:884:33
+    |
+884 |                     let mut p = Paint::default();
+    |                                 ^^^^^ use of undeclared type `Paint`
+
+error[E0433]: cannot find type `Rect` in this scope
+   --> src\gui_vello.rs:886:38
+    |
+886 |                     if let Some(r) = Rect::from_xywh(x, btn_y_local, btn_size, btn_size) {
+    |                                      ^^^^ use of undeclared type `Rect`
+
+error[E0433]: cannot find type `Transform` in this scope
+   --> src\gui_vello.rs:887:46
+    |
+887 |                         ovl.fill_rect(r, &p, Transform::identity(), None);
+    |                                              ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `Paint` in this scope
+   --> src\gui_vello.rs:889:34
+    |
+889 |                     let mut tp = Paint::default(); tp.set_color_rgba8(255, 255, 255, 255); tp.anti_alias = true;
+    |                                  ^^^^^ use of undeclared type `Paint`
+
+error[E0599]: no method named `draw_text` found for mutable reference `&mut gui_vello::App` in the current scope
+   --> src\gui_vello.rs:891:26
+    |
+891 |                     self.draw_text(ovl, label, x + (btn_size - tw) / 2.0, btn_y_local + 52.0, 36.0, font, &tp);
+    |                          ^^^^^^^^^ method not found in `&mut gui_vello::App`
+
+error[E0433]: cannot find type `Paint` in this scope
+   --> src\gui_vello.rs:900:30
+    |
+900 |                 let mut lp = Paint::default(); lp.set_color_rgba8(255, 255, 255, 255); lp.anti_alias = true;
+    |                              ^^^^^ use of undeclared type `Paint`
+
+error[E0599]: no method named `draw_text` found for mutable reference `&mut gui_vello::App` in the current scope
+   --> src\gui_vello.rs:903:22
+    |
+903 |                 self.draw_text(&mut ovl, &zoom_pct, lx, btn_y_local + 48.0, 32.0, font, &lp);
+    |                      ^^^^^^^^^ method not found in `&mut gui_vello::App`
+
+error[E0308]: mismatched types
+   --> src\gui_vello.rs:911:35
+    |
+911 |                     if dst_row >= height { break; }
+    |                        -------    ^^^^^^ expected `usize`, found `u32`
+    |                        |
+    |                        expected because this is `usize`
+    |
+help: you can convert a `u32` to a `usize` and panic if the converted value doesn't fit
+    |
+911 |                     if dst_row >= height.try_into().unwrap() { break; }
+    |                                         ++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> src\gui_vello.rs:914:39
+    |
+914 |                         if dst_col >= width { break; }
+    |                            -------    ^^^^^ expected `usize`, found `u32`
+    |                            |
+    |                            expected because this is `usize`
+    |
+help: you can convert a `u32` to a `usize` and panic if the converted value doesn't fit
+    |
+914 |                         if dst_col >= width.try_into().unwrap() { break; }
+    |                                            ++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> src\gui_vello.rs:918:49
+    |
+918 |                         let dst_idx = dst_row * width + dst_col;
+    |                                                 ^^^^^ expected `usize`, found `u32`
+
+error[E0277]: cannot multiply `usize` by `u32`
+   --> src\gui_vello.rs:918:47
+    |
+918 |                         let dst_idx = dst_row * width + dst_col;
+    |                                               ^ no implementation for `usize * u32`
+    |
+    = help: the trait `std::ops::Mul<u32>` is not implemented for `usize`
+    = help: the following other types implement trait `std::ops::Mul<Rhs>`:
+              `&usize` implements `std::ops::Mul<usize>`
+              `&usize` implements `std::ops::Mul`
+              `usize` implements `std::ops::Mul<&usize>`
+              `usize` implements `std::ops::Mul<zerocopy::byteorder::Usize<O>>`
+              `usize` implements `std::ops::Mul`
+
+error[E0433]: cannot find type `Pixmap` in this scope
+   --> src\gui_vello.rs:944:37
+    |
+944 |             if let Some(mut tovl) = Pixmap::new(tow, toh) {
+    |                                     ^^^^^^ use of undeclared type `Pixmap`
+
+error[E0433]: cannot find type `Paint` in this scope
+   --> src\gui_vello.rs:946:36
+    |
+946 |                 let mut bg_paint = Paint::default();
+    |                                    ^^^^^ use of undeclared type `Paint`
+
+error[E0433]: cannot find type `Paint` in this scope
+   --> src\gui_vello.rs:948:36
+    |
+948 |                 let mut border_p = Paint::default();
+    |                                    ^^^^^ use of undeclared type `Paint`
+
+error[E0433]: cannot find type `Rect` in this scope
+   --> src\gui_vello.rs:951:41
+    |
+951 |                 if let Some(border_r) = Rect::from_xywh(0.0, 0.0, tow as f32, toh as f32) {
+    |                                         ^^^^ use of undeclared type `Rect`
+
+error[E0433]: cannot find type `Transform` in this scope
+   --> src\gui_vello.rs:952:57
+    |
+952 |                     tovl.fill_rect(border_r, &border_p, Transform::identity(), None);
+    |                                                         ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `Rect` in this scope
+   --> src\gui_vello.rs:954:40
+    |
+954 |                 if let Some(inner_r) = Rect::from_xywh(1.0, 1.0, tow as f32 - 2.0, toh as f32 - 2.0) {
+    |                                        ^^^^ use of undeclared type `Rect`
+
+error[E0433]: cannot find type `Transform` in this scope
+   --> src\gui_vello.rs:955:56
+    |
+955 |                     tovl.fill_rect(inner_r, &bg_paint, Transform::identity(), None);
+    |                                                        ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `Paint` in this scope
+   --> src\gui_vello.rs:962:33
+    |
+962 |                     let mut p = Paint::default();
+    |                                 ^^^^^ use of undeclared type `Paint`
+
+error[E0433]: cannot find type `Rect` in this scope
+   --> src\gui_vello.rs:964:38
+    |
+964 |                     if let Some(r) = Rect::from_xywh(x, btn_y_local, btn_size, btn_size) {
+    |                                      ^^^^ use of undeclared type `Rect`
+
+error[E0433]: cannot find type `Transform` in this scope
+   --> src\gui_vello.rs:965:46
+    |
+965 |                         ovl.fill_rect(r, &p, Transform::identity(), None);
+    |                                              ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `PathBuilder` in this scope
+   --> src\gui_vello.rs:968:34
+    |
+968 |                     let mut pb = PathBuilder::new();
+    |                                  ^^^^^^^^^^^ use of undeclared type `PathBuilder`
+
+error[E0433]: cannot find type `Paint` in this scope
+   --> src\gui_vello.rs:987:38
+    |
+987 |                         let mut tp = Paint::default();
+    |                                      ^^^^^ use of undeclared type `Paint`
+
+error[E0433]: cannot find type `FillRule` in this scope
+   --> src\gui_vello.rs:990:51
+    |
+990 |                         ovl.fill_path(&path, &tp, FillRule::Winding, Transform::identity(), None);
+    |                                                   ^^^^^^^^ use of undeclared type `FillRule`
+
+error[E0433]: cannot find type `Transform` in this scope
+   --> src\gui_vello.rs:990:70
+    |
+990 |                         ovl.fill_path(&path, &tp, FillRule::Winding, Transform::identity(), None);
+    |                                                                      ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `Paint` in this scope
+    --> src\gui_vello.rs:1001:36
+     |
+1001 |                 let mut input_bg = Paint::default();
+     |                                    ^^^^^ use of undeclared type `Paint`
+
+error[E0433]: cannot find type `Paint` in this scope
+    --> src\gui_vello.rs:1013:40
+     |
+1013 |                 let mut input_border = Paint::default();
+     |                                        ^^^^^ use of undeclared type `Paint`
+
+error[E0433]: cannot find type `Rect` in this scope
+    --> src\gui_vello.rs:1020:34
+     |
+1020 |                 if let Some(r) = Rect::from_xywh(input_x, btn_y_local, input_w, btn_size) {
+     |                                  ^^^^ use of undeclared type `Rect`
+
+error[E0433]: cannot find type `Transform` in this scope
+    --> src\gui_vello.rs:1021:54
+     |
+1021 |                     tovl.fill_rect(r, &input_border, Transform::identity(), None);
+     |                                                      ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `Rect` in this scope
+    --> src\gui_vello.rs:1023:34
+     |
+1023 |                 if let Some(r) = Rect::from_xywh(input_x + 1.0, btn_y_local + 1.0, input_w - 2.0, btn_size - 2.0) {
+     |                                  ^^^^ use of undeclared type `Rect`
+
+error[E0433]: cannot find type `Transform` in this scope
+    --> src\gui_vello.rs:1024:50
+     |
+1024 |                     tovl.fill_rect(r, &input_bg, Transform::identity(), None);
+     |                                                  ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `Paint` in this scope
+    --> src\gui_vello.rs:1040:30
+     |
+1040 |                 let mut lp = Paint::default(); lp.set_color_rgba8(255, 255, 255, 255); lp.anti_alias = true;
+     |                              ^^^^^ use of undeclared type `Paint`
+
+error[E0599]: no method named `draw_text` found for mutable reference `&mut gui_vello::App` in the current scope
+    --> src\gui_vello.rs:1043:22
+     |
+1043 |                 self.draw_text(&mut tovl, &text_to_draw, lx, btn_y_local + 48.0, 32.0, font, &lp);
+     |                      ^^^^^^^^^ method not found in `&mut gui_vello::App`
+
+error[E0433]: cannot find type `Paint` in this scope
+    --> src\gui_vello.rs:1047:30
+     |
+1047 |                 let mut tp = Paint::default(); tp.set_color_rgba8(180, 180, 180, 255); tp.anti_alias = true;
+     |                              ^^^^^ use of undeclared type `Paint`
+
+error[E0599]: no method named `draw_text` found for mutable reference `&mut gui_vello::App` in the current scope
+    --> src\gui_vello.rs:1052:22
+     |
+1052 |                 self.draw_text(&mut tovl, &total_text, t_lx, btn_y_local + 48.0, 32.0, font, &tp);
+     |                      ^^^^^^^^^ method not found in `&mut gui_vello::App`
+
+error[E0308]: mismatched types
+    --> src\gui_vello.rs:1060:35
+     |
+1060 |                     if dst_row >= height { break; }
+     |                        -------    ^^^^^^ expected `usize`, found `u32`
+     |                        |
+     |                        expected because this is `usize`
+     |
+help: you can convert a `u32` to a `usize` and panic if the converted value doesn't fit
+     |
+1060 |                     if dst_row >= height.try_into().unwrap() { break; }
+     |                                         ++++++++++++++++++++
+
+error[E0308]: mismatched types
+    --> src\gui_vello.rs:1063:39
+     |
+1063 |                         if dst_col >= width { break; }
+     |                            -------    ^^^^^ expected `usize`, found `u32`
+     |                            |
+     |                            expected because this is `usize`
+     |
+help: you can convert a `u32` to a `usize` and panic if the converted value doesn't fit
+     |
+1063 |                         if dst_col >= width.try_into().unwrap() { break; }
+     |                                            ++++++++++++++++++++
+
+error[E0308]: mismatched types
+    --> src\gui_vello.rs:1067:49
+     |
+1067 |                         let dst_idx = dst_row * width + dst_col;
+     |                                                 ^^^^^ expected `usize`, found `u32`
+
+error[E0277]: cannot multiply `usize` by `u32`
+    --> src\gui_vello.rs:1067:47
+     |
+1067 |                         let dst_idx = dst_row * width + dst_col;
+     |                                               ^ no implementation for `usize * u32`
+     |
+     = help: the trait `std::ops::Mul<u32>` is not implemented for `usize`
+     = help: the following other types implement trait `std::ops::Mul<Rhs>`:
+               `&usize` implements `std::ops::Mul<usize>`
+               `&usize` implements `std::ops::Mul`
+               `usize` implements `std::ops::Mul<&usize>`
+               `usize` implements `std::ops::Mul<zerocopy::byteorder::Usize<O>>`
+               `usize` implements `std::ops::Mul`
+
+error[E0433]: cannot find type `Pixmap` in this scope
+    --> src\gui_vello.rs:1098:37
+     |
+1098 |             if let Some(mut lovl) = Pixmap::new(left_ow, left_oh) {
+     |                                     ^^^^^^ use of undeclared type `Pixmap`
+
+error[E0433]: cannot find type `Paint` in this scope
+    --> src\gui_vello.rs:1100:36
+     |
+1100 |                 let mut bg_paint = Paint::default();
+     |                                    ^^^^^ use of undeclared type `Paint`
+
+error[E0433]: cannot find type `Paint` in this scope
+    --> src\gui_vello.rs:1102:36
+     |
+1102 |                 let mut border_p = Paint::default();
+     |                                    ^^^^^ use of undeclared type `Paint`
+
+error[E0433]: cannot find type `Rect` in this scope
+    --> src\gui_vello.rs:1106:34
+     |
+1106 |                 if let Some(r) = Rect::from_xywh(0.0, btn_rect_y, menu_btn_w, menu_btn_h) {
+     |                                  ^^^^ use of undeclared type `Rect`
+
+error[E0433]: cannot find type `Transform` in this scope
+    --> src\gui_vello.rs:1107:50
+     |
+1107 |                     lovl.fill_rect(r, &border_p, Transform::identity(), None);
+     |                                                  ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `Rect` in this scope
+    --> src\gui_vello.rs:1109:34
+     |
+1109 |                 if let Some(r) = Rect::from_xywh(1.0, btn_rect_y + 1.0, menu_btn_w - 2.0, menu_btn_h - 2.0) {
+     |                                  ^^^^ use of undeclared type `Rect`
+
+error[E0433]: cannot find type `Transform` in this scope
+    --> src\gui_vello.rs:1112:43
+     |
+1112 |                     lovl.fill_rect(r, &p, Transform::identity(), None);
+     |                                           ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `Paint` in this scope
+    --> src\gui_vello.rs:1115:34
+     |
+1115 |                 let mut icon_p = Paint::default(); icon_p.set_color_rgba8(255, 255, 255, 255);
+     |                                  ^^^^^ use of undeclared type `Paint`
+
+error[E0433]: cannot find type `Rect` in this scope
+    --> src\gui_vello.rs:1117:38
+     |
+1117 |                     if let Some(r) = Rect::from_xywh(21.0, btn_rect_y + 34.0 + i as f32 * 12.0, 42.0, 6.0) {
+     |                                      ^^^^ use of undeclared type `Rect`
+
+error[E0433]: cannot find type `Transform` in this scope
+    --> src\gui_vello.rs:1118:52
+     |
+1118 |                         lovl.fill_rect(r, &icon_p, Transform::identity(), None);
+     |                                                    ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `Rect` in this scope
+    --> src\gui_vello.rs:1123:38
+     |
+1123 |                     if let Some(r) = Rect::from_xywh(0.0, 0.0, menu_w, menu_h) {
+     |                                      ^^^^ use of undeclared type `Rect`
+
+error[E0433]: cannot find type `Transform` in this scope
+    --> src\gui_vello.rs:1124:54
+     |
+1124 |                         lovl.fill_rect(r, &border_p, Transform::identity(), None);
+     |                                                      ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `Rect` in this scope
+    --> src\gui_vello.rs:1126:38
+     |
+1126 |                     if let Some(r) = Rect::from_xywh(1.0, 1.0, menu_w - 2.0, menu_h - 2.0) {
+     |                                      ^^^^ use of undeclared type `Rect`
+
+error[E0433]: cannot find type `Transform` in this scope
+    --> src\gui_vello.rs:1127:54
+     |
+1127 |                         lovl.fill_rect(r, &bg_paint, Transform::identity(), None);
+     |                                                      ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `Paint` in this scope
+    --> src\gui_vello.rs:1142:38
+     |
+1142 |                     let mut text_p = Paint::default(); text_p.set_color_rgba8(255, 255, 255, 255); text_p.anti_alias = true;
+     |                                      ^^^^^ use of undeclared type `Paint`
+
+error[E0433]: cannot find type `Paint` in this scope
+    --> src\gui_vello.rs:1147:42
+     |
+1147 | ...                   let mut hp = Paint::default(); hp.set_color_rgba8(70, 70, 70, 255);
+     |                                    ^^^^^ use of undeclared type `Paint`
+
+error[E0433]: cannot find type `Rect` in this scope
+    --> src\gui_vello.rs:1148:46
+     |
+1148 | ...                   if let Some(r) = Rect::from_xywh(1.0, y + 1.0, menu_w - 2.0, item_h - 2.0) {
+     |                                        ^^^^ use of undeclared type `Rect`
+
+error[E0433]: cannot find type `Transform` in this scope
+    --> src\gui_vello.rs:1149:56
+     |
+1149 | ...                   lovl.fill_rect(r, &hp, Transform::identity(), None);
+     |                                              ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0433]: cannot find type `Paint` in this scope
+    --> src\gui_vello.rs:1157:45
+     |
+1157 | ...                   let mut ind_p = Paint::default(); ind_p.set_color_rgba8(100, 200, 255, 255);
+     |                                       ^^^^^ use of undeclared type `Paint`
+
+error[E0433]: cannot find type `Rect` in this scope
+    --> src\gui_vello.rs:1158:46
+     |
+1158 | ...                   if let Some(r) = Rect::from_xywh(8.0, y + item_h / 2.0 - 6.0, 12.0, 12.0) {
+     |                                        ^^^^ use of undeclared type `Rect`
+
+error[E0433]: cannot find type `Transform` in this scope
+    --> src\gui_vello.rs:1159:59
+     |
+1159 | ...                   lovl.fill_rect(r, &ind_p, Transform::identity(), None);
+     |                                                 ^^^^^^^^^ use of undeclared type `Transform`
+
+error[E0599]: no method named `draw_text` found for mutable reference `&mut gui_vello::App` in the current scope
+    --> src\gui_vello.rs:1163:30
+     |
+1163 |                         self.draw_text(&mut lovl, text, 28.0, y + 38.0, 28.0, font, &text_p);
+     |                              ^^^^^^^^^ method not found in `&mut gui_vello::App`
+
+error[E0308]: mismatched types
+    --> src\gui_vello.rs:1175:35
+     |
+1175 |                     if dst_row >= height { break; }
+     |                        -------    ^^^^^^ expected `usize`, found `u32`
+     |                        |
+     |                        expected because this is `usize`
+     |
+help: you can convert a `u32` to a `usize` and panic if the converted value doesn't fit
+     |
+1175 |                     if dst_row >= height.try_into().unwrap() { break; }
+     |                                         ++++++++++++++++++++
+
+error[E0308]: mismatched types
+    --> src\gui_vello.rs:1178:39
+     |
+1178 |                         if dst_col >= width { break; }
+     |                            -------    ^^^^^ expected `usize`, found `u32`
+     |                            |
+     |                            expected because this is `usize`
+     |
+help: you can convert a `u32` to a `usize` and panic if the converted value doesn't fit
+     |
+1178 |                         if dst_col >= width.try_into().unwrap() { break; }
+     |                                            ++++++++++++++++++++
+
+error[E0308]: mismatched types
+    --> src\gui_vello.rs:1182:49
+     |
+1182 |                         let dst_idx = dst_row * width + dst_col;
+     |                                                 ^^^^^ expected `usize`, found `u32`
+
+error[E0277]: cannot multiply `usize` by `u32`
+    --> src\gui_vello.rs:1182:47
+     |
+1182 |                         let dst_idx = dst_row * width + dst_col;
+     |                                               ^ no implementation for `usize * u32`
+     |
+     = help: the trait `std::ops::Mul<u32>` is not implemented for `usize`
+     = help: the following other types implement trait `std::ops::Mul<Rhs>`:
+               `&usize` implements `std::ops::Mul<usize>`
+               `&usize` implements `std::ops::Mul`
+               `usize` implements `std::ops::Mul<&usize>`
+               `usize` implements `std::ops::Mul<zerocopy::byteorder::Usize<O>>`
+               `usize` implements `std::ops::Mul`
+
+error[E0433]: cannot find type `Surface` in this scope
+    --> src\gui_vello.rs:1227:33
+     |
+1227 |             let surface = match Surface::new(&context, window.clone()) {
+     |                                 ^^^^^^^ use of undeclared type `Surface`
+
+error[E0609]: no field `context` on type `&mut gui_vello::App`
+    --> src\gui_vello.rs:1235:18
+     |
+1235 |             self.context = Some(context);
+     |                  ^^^^^^^ unknown field
+     |
+     = note: available fields are: `window`, `surface`, `device`, `queue`, `renderer` ... and 27 others
+
+error[E0026]: variant `gui_vello::WorkerMessage::PageRendered` does not have a field named `pixmap`
+    --> src\gui_vello.rs:1491:63
+     |
+1491 |                 WorkerMessage::PageRendered { page_idx, zoom, pixmap } => {
+     |                                                               ^^^^^^
+     |                                                               |
+     |                                                               variant `gui_vello::WorkerMessage::PageRendered` does not have this field
+     |                                                               help: `gui_vello::WorkerMessage::PageRendered` has a field named `scene`
+
+error[E0027]: pattern does not mention field `scene`
+    --> src\gui_vello.rs:1491:17
+     |
+1491 |                 WorkerMessage::PageRendered { page_idx, zoom, pixmap } => {
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing field `scene`
+     |
+help: include the missing field in the pattern
+     |
+1491 |                 WorkerMessage::PageRendered { page_idx, zoom, pixmap, scene } => {
+     |                                                                     +++++++
+help: if you don't care about this missing field, you can explicitly ignore it
+     |
+1491 |                 WorkerMessage::PageRendered { page_idx, zoom, pixmap, scene: _ } => {
+     |                                                                     ++++++++++
+help: or always ignore missing fields here
+     |
+1491 |                 WorkerMessage::PageRendered { page_idx, zoom, pixmap, .. } => {
+     |                                                                     ++++
+
+error[E0560]: struct `gui_vello::CachedPage` has no field named `pixmap`
+    --> src\gui_vello.rs:1493:85
+     |
+1493 |                         self.page_images.borrow_mut().insert(page_idx, CachedPage { pixmap, zoom });
+     |                                                                                     ^^^^^^ `gui_vello::CachedPage` does not have this field
+     |
+     = note: available fields are: `scene`
+
+error[E0433]: cannot find type `Pixmap` in this scope
+    --> src\gui_vello.rs:1704:26
+     |
+1704 |             logo_pixmap: Pixmap::load_png("logo.png").ok(),
+     |                          ^^^^^^ use of undeclared type `Pixmap`
+
+warning: unused variable: `epoch`
+    --> src\gui.rs:1566:13
+     |
+1566 |         let epoch = self.render_epoch.load(Ordering::SeqCst);
+     |             ^^^^^ help: if this is intentional, prefix it with an underscore: `_epoch`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+error[E0433]: cannot find module or crate `wgpu` in this scope
+  --> src\gui_vello.rs:69:21
+   |
+69 |     surface: Option<wgpu::Surface<'static>>,
+   |                     ^^^^ use of unresolved module or unlinked crate `wgpu`
+   |
+   = help: if you wanted to use a crate named `wgpu`, use `cargo add wgpu` to add it to your `Cargo.toml`
+
+error[E0433]: cannot find module or crate `wgpu` in this scope
+  --> src\gui_vello.rs:70:20
+   |
+70 |     device: Option<wgpu::Device>,
+   |                    ^^^^ use of unresolved module or unlinked crate `wgpu`
+   |
+   = help: if you wanted to use a crate named `wgpu`, use `cargo add wgpu` to add it to your `Cargo.toml`
+
+error[E0433]: cannot find module or crate `wgpu` in this scope
+  --> src\gui_vello.rs:71:19
+   |
+71 |     queue: Option<wgpu::Queue>,
+   |                   ^^^^ use of unresolved module or unlinked crate `wgpu`
+   |
+   = help: if you wanted to use a crate named `wgpu`, use `cargo add wgpu` to add it to your `Cargo.toml`
+
+Some errors have detailed explanations: E0026, E0027, E0277, E0308, E0425, E0432, E0433, E0560, E0599...
+For more information about an error, try `rustc --explain E0026`.
+warning: `ufreader` (bin "ufreader") generated 3 warnings
+error: could not compile `ufreader` (bin "ufreader") due to 127 previous errors; 3 warnings emitted
