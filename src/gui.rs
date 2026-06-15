@@ -97,7 +97,7 @@ struct App {
 }
 
 fn load_window_icon() -> Option<winit::window::Icon> {
-    if let Ok(pixmap) = Pixmap::load_png("logo.png") {
+    if let Ok(pixmap) = Pixmap::load_png("assets/logo.png") {
         let target_size = 64;
         let mut resized = Pixmap::new(target_size, target_size)?;
         let sx = target_size as f32 / pixmap.width() as f32;
@@ -388,7 +388,7 @@ impl App {
         buffer.fill(bg_color);
 
         let font = &self.default_font;
-        let title = "UfReader";
+        let title = "Adobo";
         let title_size = 36.0f32;
         let tp = {
             let mut p = Paint::default();
@@ -1284,7 +1284,7 @@ impl ApplicationHandler for App {
         if self.window.is_none() {
             let window = match event_loop.create_window(
                 Window::default_attributes()
-                    .with_title("UfReader - Pro Weight View")
+                    .with_title("Adobo Reader")
                     .with_maximized(true)
             ) {
                 Ok(w) => Rc::new(w),
@@ -1776,7 +1776,7 @@ impl Gui {
             window_size: winit::dpi::PhysicalSize::new(0, 0),
             zoom_initialized: false,
             default_font,
-            logo_pixmap: Pixmap::load_png("logo.png").ok(),
+            logo_pixmap: Pixmap::load_png("assets/logo.png").ok(),
             layout_mode: LayoutMode::Continuous,
             left_menu_open: false,
             page_input_active: false,

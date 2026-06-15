@@ -94,8 +94,17 @@ pub struct App {
     window_icon: Option<winit::window::Icon>,
     layout_mode: LayoutMode,
     left_menu_open: bool,
+    top_menu_open: bool,
+    recent_menu_open: bool,
     page_input_active: bool,
     page_input_text: String,
+    surface_size: (u32, u32),
+    last_draw_time: std::time::Instant,
+    is_loading_next: bool,
+    kill_pid: Option<u32>,
+    pdf_title: String,
+    pdf_author: String,
+    view_lecturas: bool,
 }
 
 impl App {
@@ -332,7 +341,7 @@ impl App {
 
     fn draw_splash_screen_to_scene(&self, scene: &mut Scene, width: f64, height: f64) {
         let font = &self.default_font;
-        let title = "UfReader";
+        let title = "Adobo";
         let title_size = 48.0;
         
         let splash_w = 400.0;
@@ -386,8 +395,269 @@ impl App {
         self.draw_text_to_scene(scene, sub, sx, text_y + 40.0, sub_size, font, vello::peniko::Color::from_rgb8(150, 150, 150));
     }
 
+    fn draw_welcome_screen_to_scene(&self, scene: &mut Scene, width: f64, height: f64) {
+        let font = &self.default_font;
+        let bg_color = vello::peniko::Color::from_rgb8(24, 24, 24);
+        let bg_rect = kurbo::Rect::new(0.0, 0.0, width, height);
+        scene.fill(
+            vello::peniko::Fill::NonZero,
+            kurbo::Affine::IDENTITY,
+            bg_color,
+            None,
+            &bg_rect,
+        );
+
+        if self.is_loading_next {
+            let title = "Cargando documento...";
+            let title_size = 48.0;
+            let tw = self.measure_text_width(title, title_size as f32, font) as f64;
+            let tx = (width - tw) / 2.0;
+            let ty = height / 2.0;
+            self.draw_text_to_scene(scene, title, tx, ty, title_size, font, vello::peniko::Color::WHITE);
+            return;
+        }
+
+        let title = "Bienvenido a Adobo";
+        let title_size = 56.0;
+        let tw = self.measure_text_width(title, title_size as f32, font) as f64;
+        let tx = (width - tw) / 2.0;
+
+        let paragraph1 = "Adobo es un proyecto libre de visualización de PDF escrito en Rust.";
+        let paragraph2 = "Se enfoca en brindarle al usuario una lectura placentera y minimalista,";
+        let paragraph3 = "eliminando las funciones pesadas que los lectores tradicionales no necesitan.";
+
+        let sub_size = 22.0;
+        let text_color = vello::peniko::Color::from_rgb8(210, 210, 210);
+
+        let w1 = self.measure_text_width(paragraph1, sub_size as f32, font) as f64;
+        let w2 = self.measure_text_width(paragraph2, sub_size as f32, font) as f64;
+        let w3 = self.measure_text_width(paragraph3, sub_size as f32, font) as f64;
+
+        let total_content_height = 160.0 + 40.0 + 60.0 + 80.0 + 80.0;
+        let start_y = ((height - total_content_height) / 2.0).max(50.0);
+
+        let ly = start_y;
+        let ty = start_y + 160.0 + 40.0;
+        let ty_p1 = ty + 80.0;
+        let ty_p2 = ty_p1 + 40.0;
+        let ty_p3 = ty_p2 + 40.0;
+
+        self.draw_text_to_scene(scene, title, tx, ty, title_size, font, vello::peniko::Color::WHITE);
+
+        self.draw_text_to_scene(scene, paragraph1, (width - w1) / 2.0, ty_p1, sub_size, font, text_color);
+        self.draw_text_to_scene(scene, paragraph2, (width - w2) / 2.0, ty_p2, sub_size, font, text_color);
+        self.draw_text_to_scene(scene, paragraph3, (width - w3) / 2.0, ty_p3, sub_size, font, text_color);
+
+        // Draw logo
+        if let Some(ref logo) = self.logo_image {
+            let lw = 160.0;
+            let lh = 160.0;
+            let lx = (width - lw) / 2.0;
+            
+            let sx = lw / logo.width as f64;
+            let sy = lh / logo.height as f64;
+            let transform = kurbo::Affine::translate((lx, ly)) * kurbo::Affine::scale_non_uniform(sx, sy);
+            
+            let image_brush = vello::peniko::Brush::Image(vello::peniko::ImageBrush::new(logo.clone()));
+            let fill_rect = kurbo::Rect::new(0.0, 0.0, logo.width as f64, logo.height as f64);
+            scene.fill(
+                vello::peniko::Fill::NonZero,
+                transform,
+                &image_brush,
+                None,
+                &fill_rect,
+            );
+        }
+    }
+
+    fn draw_lecturas_to_scene(&self, scene: &mut Scene, width: f64, height: f64, hover_state: u8) {
+        let font = &self.default_font;
+        let bg_color = vello::peniko::Color::from_rgb8(20, 20, 20);
+        let bg_rect = kurbo::Rect::new(0.0, 0.0, width, height);
+        scene.fill(
+            vello::peniko::Fill::NonZero,
+            kurbo::Affine::IDENTITY,
+            bg_color,
+            None,
+            &bg_rect,
+        );
+
+        let title = "Lecturas Guardadas";
+        let title_size = 48.0;
+        let tw = self.measure_text_width(title, title_size as f32, font) as f64;
+        self.draw_text_to_scene(scene, title, (width - tw) / 2.0, 80.0, title_size, font, vello::peniko::Color::WHITE);
+
+        // Volver button
+        let volver_rect = kurbo::RoundedRect::new(30.0, 30.0, 150.0, 80.0, 8.0);
+        let volver_bg = if hover_state == 50 { vello::peniko::Color::from_rgb8(80, 80, 80) } else { vello::peniko::Color::from_rgb8(50, 50, 50) };
+        scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, volver_bg, None, &volver_rect);
+        self.draw_text_to_scene(scene, "< Volver", 50.0, 62.0, 24.0, font, vello::peniko::Color::WHITE);
+
+        let readings = crate::db::get_all_readings();
+        if readings.is_empty() {
+            let msg = "No hay lecturas guardadas.";
+            let mw = self.measure_text_width(msg, 24.0, font) as f64;
+            self.draw_text_to_scene(scene, msg, (width - mw) / 2.0, height / 2.0, 24.0, font, vello::peniko::Color::from_rgb8(150, 150, 150));
+            return;
+        }
+
+        let start_y = 120.0;
+        let item_h = 100.0;
+        let gap = 20.0;
+        let list_w = (width - 100.0).max(600.0).min(1000.0);
+        let list_x = (width - list_w) / 2.0;
+
+        for (idx, (_, progress)) in readings.iter().enumerate() {
+            let item_y = start_y + (idx as f64 * (item_h + gap));
+            let item_rect = kurbo::RoundedRect::new(list_x, item_y, list_x + list_w, item_y + item_h, 12.0);
+            scene.fill(
+                vello::peniko::Fill::NonZero,
+                kurbo::Affine::IDENTITY,
+                vello::peniko::Color::from_rgb8(35, 35, 35),
+                None,
+                &item_rect,
+            );
+
+            // Title and Author
+            self.draw_text_to_scene(scene, &progress.title, list_x + 30.0, item_y + 40.0, 28.0, font, vello::peniko::Color::WHITE);
+            let author_txt = format!("Por: {}", progress.author);
+            self.draw_text_to_scene(scene, &author_txt, list_x + 30.0, item_y + 75.0, 20.0, font, vello::peniko::Color::from_rgb8(180, 180, 180));
+
+            // Progress bar and text
+            let prog_pct = progress.percentage();
+            let prog_txt = format!("Pag {} de {} ({:.1}%)", progress.current_page + 1, progress.total_pages, prog_pct);
+            let prog_txt_w = self.measure_text_width(&prog_txt, 20.0, font) as f64;
+            self.draw_text_to_scene(scene, &prog_txt, list_x + list_w - 200.0 - prog_txt_w - 30.0, item_y + 45.0, 20.0, font, vello::peniko::Color::from_rgb8(200, 200, 200));
+
+            let bar_w = 250.0;
+            let bar_x = list_x + list_w - 200.0 - bar_w - 30.0;
+            let bar_y = item_y + 60.0;
+            let bar_bg = kurbo::RoundedRect::new(bar_x, bar_y, bar_x + bar_w, bar_y + 10.0, 5.0);
+            scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgb8(60, 60, 60), None, &bar_bg);
+            
+            let fill_w = bar_w * (prog_pct as f64 / 100.0);
+            if fill_w > 0.0 {
+                let bar_fg = kurbo::RoundedRect::new(bar_x, bar_y, bar_x + fill_w, bar_y + 10.0, 5.0);
+                scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgb8(100, 200, 100), None, &bar_fg);
+            }
+
+            // Leer button
+            let btn_w = 140.0;
+            let btn_h = 40.0;
+            let btn_x = list_x + list_w - btn_w - 30.0;
+            let btn_y = item_y + 30.0;
+            let is_hover = hover_state == (100 + idx) as u8;
+            let btn_bg = if is_hover { vello::peniko::Color::from_rgb8(80, 150, 80) } else { vello::peniko::Color::from_rgb8(50, 120, 50) };
+            
+            let btn_rect = kurbo::RoundedRect::new(btn_x, btn_y, btn_x + btn_w, btn_y + btn_h, 8.0);
+            scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, btn_bg, None, &btn_rect);
+            
+            let leer_txt = "Leer";
+            let leer_tw = self.measure_text_width(leer_txt, 20.0, font) as f64;
+            self.draw_text_to_scene(scene, leer_txt, btn_x + (btn_w - leer_tw) / 2.0, btn_y + 26.0, 20.0, font, vello::peniko::Color::WHITE);
+        }
+    }
+
+
     fn draw_ui_overlays_to_scene(&self, scene: &mut Scene, width: f64, height: f64, hover_state: u8) {
         let font = &self.default_font;
+        let has_pdf = !self.pages.is_empty();
+
+        let stroke_style = kurbo::Stroke::new(2.0);
+        let border_color = vello::peniko::Color::from_rgb8(100, 100, 100);
+        let bg_color = vello::peniko::Color::from_rgba8(25, 25, 25, 220);
+
+        // TOP-LEFT MENU (Abrir Archivo)
+        let top_menu_btn_x = 30.0;
+        let top_menu_btn_y = 30.0;
+        let top_menu_btn_w = 120.0;
+        let top_menu_btn_h = 50.0;
+
+        let top_menu_x = 30.0;
+        let top_menu_y = top_menu_btn_y + top_menu_btn_h + 5.0;
+
+        // Draw top-left menu toggle button
+        let top_btn_rounded = kurbo::RoundedRect::new(top_menu_btn_x, top_menu_btn_y, top_menu_btn_x + top_menu_btn_w, top_menu_btn_y + top_menu_btn_h, 8.0);
+        let top_btn_bg_color = vello::peniko::Color::from_rgb8(
+            if hover_state == 30 { 70 } else { 25 },
+            if hover_state == 30 { 70 } else { 25 },
+            if hover_state == 30 { 70 } else { 25 },
+        );
+        scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, top_btn_bg_color, None, &top_btn_rounded);
+        scene.stroke(&stroke_style, kurbo::Affine::IDENTITY, border_color, None, &top_btn_rounded);
+
+        self.draw_text_to_scene(scene, "Menu", top_menu_btn_x + 20.0, top_menu_btn_y + 35.0, 28.0, font, vello::peniko::Color::WHITE);
+
+        if self.top_menu_open {
+            if self.recent_menu_open {
+                let recents = load_recent_files();
+                let item_count = recents.len() + 1;
+                let dyn_menu_h = (item_count as f64 * 40.0) + 20.0;
+                let dyn_menu_w = 400.0;
+                
+                let top_menu_rounded = kurbo::RoundedRect::new(top_menu_x, top_menu_y, top_menu_x + dyn_menu_w, top_menu_y + dyn_menu_h, 8.0);
+                scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, bg_color, None, &top_menu_rounded);
+                scene.stroke(&stroke_style, kurbo::Affine::IDENTITY, border_color, None, &top_menu_rounded);
+                
+                let back_y = top_menu_y + 10.0;
+                if hover_state == 35 {
+                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, back_y, top_menu_x + dyn_menu_w - 1.0, back_y + 35.0);
+                    scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
+                }
+                self.draw_text_to_scene(scene, "< Volver", top_menu_x + 20.0, back_y + 25.0, 20.0, font, vello::peniko::Color::WHITE);
+                
+                for (idx, file) in recents.iter().enumerate() {
+                    let item_y = back_y + 40.0 + (idx as f64 * 40.0);
+                    let h_state = 36 + idx as u8;
+                    if hover_state == h_state {
+                        let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item_y, top_menu_x + dyn_menu_w - 1.0, item_y + 35.0);
+                        scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
+                    }
+                    let display_name = std::path::Path::new(file).file_name().and_then(|n| n.to_str()).unwrap_or(file);
+                    self.draw_text_to_scene(scene, display_name, top_menu_x + 20.0, item_y + 25.0, 18.0, font, vello::peniko::Color::WHITE);
+                }
+            } else {
+                let dyn_menu_w = 220.0;
+                let dyn_menu_h = 170.0;
+                
+                let top_menu_rounded = kurbo::RoundedRect::new(top_menu_x, top_menu_y, top_menu_x + dyn_menu_w, top_menu_y + dyn_menu_h, 8.0);
+                scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, bg_color, None, &top_menu_rounded);
+                scene.stroke(&stroke_style, kurbo::Affine::IDENTITY, border_color, None, &top_menu_rounded);
+                
+                let item1_y = top_menu_y + 5.0;
+                if hover_state == 31 {
+                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item1_y, top_menu_x + dyn_menu_w - 1.0, item1_y + 38.0);
+                    scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
+                }
+                self.draw_text_to_scene(scene, "Abrir archivo...", top_menu_x + 20.0, item1_y + 28.0, 22.0, font, vello::peniko::Color::WHITE);
+                
+                let item2_y = item1_y + 40.0;
+                if hover_state == 32 {
+                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item2_y, top_menu_x + dyn_menu_w - 1.0, item2_y + 38.0);
+                    scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
+                }
+                self.draw_text_to_scene(scene, "Open recent files", top_menu_x + 20.0, item2_y + 28.0, 22.0, font, vello::peniko::Color::WHITE);
+
+                let item3_y = item2_y + 40.0;
+                if hover_state == 33 {
+                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item3_y, top_menu_x + dyn_menu_w - 1.0, item3_y + 38.0);
+                    scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
+                }
+                self.draw_text_to_scene(scene, "Lecturas", top_menu_x + 20.0, item3_y + 28.0, 22.0, font, vello::peniko::Color::WHITE);
+
+                let item4_y = item3_y + 40.0;
+                if hover_state == 34 {
+                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item4_y, top_menu_x + dyn_menu_w - 1.0, item4_y + 38.0);
+                    scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
+                }
+                self.draw_text_to_scene(scene, "Exit", top_menu_x + 20.0, item4_y + 28.0, 22.0, font, vello::peniko::Color::WHITE);
+            }
+        }
+
+        if !has_pdf {
+            return; // Don't draw the rest of the UI overlays
+        }
+
         let overlay_width = 504.0;
         let overlay_height = 100.0;
         let overlay_x = width - overlay_width - 30.0;
@@ -588,7 +858,7 @@ impl App {
             vello::peniko::Color::from_rgb8(180, 180, 180),
         );
 
-        // 3. Left Menu Overlay
+        // 3. Left Menu Overlay (Bottom-Left)
         let menu_btn_x = 30.0;
         let menu_btn_y = height - 100.0 - 30.0;
         let menu_btn_w = 84.0;
@@ -690,6 +960,23 @@ impl App {
                     );
                 }
             }
+        }
+
+        if self.is_loading_next {
+            let bg_rect = kurbo::Rect::new(0.0, 0.0, width, height);
+            scene.fill(
+                vello::peniko::Fill::NonZero,
+                kurbo::Affine::IDENTITY,
+                vello::peniko::Color::from_rgba8(0, 0, 0, 180),
+                None,
+                &bg_rect,
+            );
+            let title = "Cargando documento...";
+            let title_size = 48.0;
+            let tw = self.measure_text_width(title, title_size as f32, font) as f64;
+            let tx = (width - tw) / 2.0;
+            let ty = height / 2.0;
+            self.draw_text_to_scene(scene, title, tx, ty, title_size, font, vello::peniko::Color::WHITE);
         }
     }
 
@@ -848,6 +1135,85 @@ impl App {
         let width = self.window_size.width as f32;
         let height = self.window_size.height as f32;
 
+        if self.view_lecturas {
+            if mx >= 30.0 && mx <= 150.0 && my >= 30.0 && my <= 80.0 {
+                return 50; // Volver button
+            }
+            let start_y = 120.0;
+            let item_h = 100.0;
+            let list_h = height - start_y - 40.0;
+            let my_rel = my - start_y;
+            if my_rel >= 0.0 && my_rel <= list_h {
+                let idx = (my_rel / (item_h + 20.0)).floor() as i32;
+                let btn_y = start_y + (idx as f32 * (item_h + 20.0)) + 30.0;
+                let btn_x = width - 180.0;
+                if mx >= btn_x && mx <= btn_x + 140.0 && my >= btn_y && my <= btn_y + 40.0 {
+                    return 100 + idx as u8;
+                }
+            }
+            return 0;
+        }
+
+        let has_pdf = !self.pages.is_empty();
+
+        // Top-left menu (Abrir Archivo)
+        let top_menu_btn_x = 30.0;
+        let top_menu_btn_y = 30.0;
+        let top_menu_btn_w = 120.0;
+        let top_menu_btn_h = 50.0;
+
+        if self.top_menu_open {
+            let top_menu_x = 30.0;
+            let top_menu_y = top_menu_btn_y + top_menu_btn_h + 5.0;
+
+            if self.recent_menu_open {
+                let recents = load_recent_files();
+                let item_count = recents.len() + 1;
+                let dyn_menu_h = (item_count as f32 * 40.0) + 20.0;
+                let dyn_menu_w = 400.0;
+
+                if mx >= top_menu_x && mx <= top_menu_x + dyn_menu_w && my >= top_menu_y && my <= top_menu_y + dyn_menu_h {
+                    let relative_y = my - top_menu_y - 10.0;
+                    if relative_y >= 0.0 {
+                        let idx = (relative_y / 40.0).floor() as i32;
+                        if idx == 0 {
+                            return 35; // Back button
+                        } else if idx > 0 && idx <= recents.len() as i32 {
+                            return 36 + (idx - 1) as u8; // File item
+                        }
+                    }
+                }
+            } else {
+                let dyn_menu_w = 220.0;
+                let dyn_menu_h = 170.0;
+
+                if mx >= top_menu_x && mx <= top_menu_x + dyn_menu_w && my >= top_menu_y && my <= top_menu_y + dyn_menu_h {
+                    let relative_y = my - top_menu_y - 5.0;
+                    if relative_y >= 0.0 {
+                        let idx = (relative_y / 40.0).floor() as i32;
+                        if idx == 0 {
+                            return 31; // "Abrir archivo..."
+                        } else if idx == 1 {
+                            return 32; // "Open recent files"
+                        } else if idx == 2 {
+                            return 33; // "Exit"
+                        } else if idx == 3 {
+                            return 34;
+                        }
+                    }
+                }
+            }
+        }
+
+        if mx >= top_menu_btn_x && mx <= top_menu_btn_x + top_menu_btn_w && my >= top_menu_btn_y && my <= top_menu_btn_y + top_menu_btn_h {
+            return 30; // Top Menu toggle button
+        }
+
+        if !has_pdf {
+            return 0;
+        }
+
+        // Bottom-left menu (Hamburger)
         let menu_btn_x = 30.0;
         let menu_btn_y = height - 100.0 - 30.0;
         let menu_btn_w = 84.0;
@@ -952,9 +1318,16 @@ impl App {
     }
 
     fn draw(&mut self, _window: &Window) {
-        let width = self.window_size.width;
-        let height = self.window_size.height;
-        if width == 0 || height == 0 { return; }
+        let width = self.window_size.width.max(1);
+        let height = self.window_size.height.max(1);
+        
+        let size_changed = self.surface_size.0 != width || self.surface_size.1 != height;
+        if size_changed {
+            if let Some(render_surface) = self.render_surface.as_mut() {
+                self.render_cx.resize_surface(render_surface, width, height);
+                self.surface_size = (width, height);
+            }
+        }
 
         // Detect scroll direction
         let scroll_diff = self.target_scroll_y - self.last_scroll_y;
@@ -1022,23 +1395,28 @@ impl App {
                 );
                 queue.submit(std::iter::once(encoder.finish()));
             }
-            let _ = device.poll(vello::wgpu::PollType::Wait { submission_index: None, timeout: None });
+            let _ = device.poll(vello::wgpu::PollType::Poll);
             surface_texture.present();
+            if let Some(w) = self.window.as_ref() { w.set_visible(true); }
             return;
         }
 
         if page_count == 0 {
+            self.draw_welcome_screen_to_scene(&mut scene, width as f64, height as f64);
+            self.draw_ui_overlays_to_scene(&mut scene, width as f64, height as f64, self.get_hover_state(self.mouse_pos.0, self.mouse_pos.1));
+
             let render_surface = self.render_surface.as_mut().unwrap();
             let device = &self.render_cx.devices[render_surface.dev_id].device;
             let queue = &self.render_cx.devices[render_surface.dev_id].queue;
             let renderer = self.renderer.as_mut().unwrap();
+
             renderer.render_to_texture(
                 device,
                 queue,
                 &scene,
                 &render_surface.target_view,
                 &vello::RenderParams {
-                    base_color: vello::peniko::Color::from_rgb8(82, 86, 89),
+                    base_color: vello::peniko::Color::from_rgb8(18, 18, 18),
                     width,
                     height,
                     antialiasing_method: vello::AaConfig::Area,
@@ -1054,8 +1432,9 @@ impl App {
                 );
                 queue.submit(std::iter::once(encoder.finish()));
             }
-            let _ = device.poll(vello::wgpu::PollType::Wait { submission_index: None, timeout: None });
+            let _ = device.poll(vello::wgpu::PollType::Poll);
             surface_texture.present();
+            if let Some(w) = self.window.as_ref() { w.set_visible(true); }
             return;
         }
 
@@ -1128,6 +1507,7 @@ impl App {
             queue.submit(std::iter::once(encoder.finish()));
         }
         surface_texture.present();
+        if let Some(w) = self.window.as_ref() { w.set_visible(true); }
     }
 }
 
@@ -1136,8 +1516,9 @@ impl ApplicationHandler for App {
         if self.window.is_none() {
             let window = match event_loop.create_window(
                 Window::default_attributes()
-                    .with_title("UfReader - Pro Weight View")
+                    .with_title("Adobo Reader")
                     .with_maximized(true)
+                    .with_visible(false)
             ) {
                 Ok(w) => Arc::new(w),
                 Err(e) => {
@@ -1166,11 +1547,24 @@ impl ApplicationHandler for App {
                 },
             ).expect("Failed to create Renderer"));
             self.render_surface = Some(render_surface);
+            self.surface_size = (size.width.max(1), size.height.max(1));
+            self.last_draw_time = std::time::Instant::now();
             
             if let Some(icon) = self.window_icon.clone() {
                 window.set_window_icon(Some(icon));
             }
             
+            self.window = Some(window.clone());
+
+            if let Some(pid) = self.kill_pid {
+                std::process::Command::new("taskkill")
+                    .arg("/F")
+                    .arg("/PID")
+                    .arg(pid.to_string())
+                    .spawn()
+                    .ok();
+            }
+
             if size.width > 0 && size.height > 0 {
                 self.zoom = self.calculate_fit_zoom(size.width, size.height);
                 self.rendered_zoom = self.zoom;
@@ -1179,24 +1573,38 @@ impl ApplicationHandler for App {
                 self.zoom_initialized = true;
             }
             self.window = Some(window.clone());
+            self.draw(&window);
             window.request_redraw();
         }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Resized(size) => {
-                if let Some(render_surface) = self.render_surface.as_mut() {
-                    self.render_cx.resize_surface(render_surface, size.width.max(1), size.height.max(1));
-                    self.window_size = size;
+            WindowEvent::CloseRequested => {
+                if !self.pdf_path.is_empty() && !self.pages.is_empty() {
+                    let progress = crate::db::ReadingProgress {
+                        title: self.pdf_title.clone(),
+                        author: self.pdf_author.clone(),
+                        current_page: self.get_current_page_idx() as u32,
+                        total_pages: self.pages.len() as u32,
+                    };
+                    let _ = crate::db::save_progress(&self.pdf_path, &progress);
                 }
+                event_loop.exit();
+            }
+            WindowEvent::Resized(size) => {
+                self.window_size = size;
                 if !self.zoom_initialized && size.width > 0 && size.height > 0 {
                     self.zoom = self.calculate_fit_zoom(size.width, size.height);
                     self.rendered_zoom = self.zoom;
                     self.clear_cache();
                     self.center_on_content(size.width, size.height);
                     self.zoom_initialized = true;
+                    if !self.pdf_path.is_empty() {
+                        if let Some(prog) = crate::db::get_progress(&self.pdf_path) {
+                            self.jump_to_page(prog.current_page as usize);
+                        }
+                    }
                 }
                 if let Some(window) = self.window.as_ref() {
                     window.request_redraw();
@@ -1217,12 +1625,96 @@ impl ApplicationHandler for App {
             WindowEvent::MouseInput { state: winit::event::ElementState::Pressed, button: winit::event::MouseButton::Left, .. } => {
                 let hover = self.get_hover_state(self.mouse_pos.0, self.mouse_pos.1);
                 
+                if self.view_lecturas {
+                    if hover == 50 {
+                        self.view_lecturas = false;
+                        if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                    } else if hover >= 100 {
+                        let idx = (hover - 100) as usize;
+                        let readings = crate::db::get_all_readings();
+                        if idx < readings.len() {
+                            let (path, _) = &readings[idx];
+                            self.view_lecturas = false;
+                            self.is_loading_next = true;
+                            if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                            
+                            let pid = std::process::id();
+                            if let Ok(exe) = std::env::current_exe() {
+                                std::process::Command::new(exe)
+                                    .arg(path)
+                                    .arg(format!("--kill-pid={}", pid))
+                                    .spawn().ok();
+                            }
+                        }
+                    }
+                    return;
+                }
+
                 if self.page_input_active && hover != 23 {
                     self.page_input_active = false;
                     if let Some(window) = self.window.as_ref() { window.request_redraw(); }
                 }
 
-                if hover == 9 {
+                if hover == 30 {
+                    self.top_menu_open = !self.top_menu_open;
+                    if !self.top_menu_open {
+                        self.recent_menu_open = false;
+                    }
+                    if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                } else if hover == 31 {
+                    self.top_menu_open = false;
+                    if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
+                        self.is_loading_next = true;
+                        if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                        
+                        let pid = std::process::id();
+                        if let Ok(exe) = std::env::current_exe() {
+                            std::process::Command::new(exe)
+                                .arg(path)
+                                .arg(format!("--kill-pid={}", pid))
+                                .spawn().ok();
+                        }
+                    }
+                } else if hover == 32 {
+                    self.recent_menu_open = true;
+                    if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                } else if hover == 33 {
+                    self.view_lecturas = true;
+                    self.top_menu_open = false;
+                    if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                } else if hover == 34 {
+                    if !self.pdf_path.is_empty() && !self.pages.is_empty() {
+                        let progress = crate::db::ReadingProgress {
+                            title: self.pdf_title.clone(),
+                            author: self.pdf_author.clone(),
+                            current_page: self.get_current_page_idx() as u32,
+                            total_pages: self.pages.len() as u32,
+                        };
+                        let _ = crate::db::save_progress(&self.pdf_path, &progress);
+                    }
+                    event_loop.exit();
+                } else if hover == 35 {
+                    self.recent_menu_open = false;
+                    if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                } else if hover >= 36 {
+                    let idx = (hover - 36) as usize;
+                    let recents = load_recent_files();
+                    if idx < recents.len() {
+                        let path = &recents[idx];
+                        self.top_menu_open = false;
+                        self.recent_menu_open = false;
+                        self.is_loading_next = true;
+                        if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                        
+                        let pid = std::process::id();
+                        if let Ok(exe) = std::env::current_exe() {
+                            std::process::Command::new(exe)
+                                .arg(path)
+                                .arg(format!("--kill-pid={}", pid))
+                                .spawn().ok();
+                        }
+                    }
+                } else if hover == 9 {
                     self.left_menu_open = !self.left_menu_open;
                     if let Some(window) = self.window.as_ref() { window.request_redraw(); }
                 } else if hover >= 10 && hover <= 17 {
@@ -1521,29 +2013,38 @@ fn map_font_name(basefont: &str) -> &'static str {
 
 pub struct Gui {
     pub pdf_path: String,
+    pub pdf_title: String,
+    pub pdf_author: String,
     pub pages: Vec<PageInfo>,
     pub logo_rgba: Option<Vec<u8>>,
     pub logo_width: u32,
     pub logo_height: u32,
     pub window_icon: Option<winit::window::Icon>,
+    pub kill_pid: Option<u32>,
 }
 
 impl Gui {
     pub fn new(
         pdf_path: String,
+        pdf_title: String,
+        pdf_author: String,
         pages: Vec<PageInfo>,
         logo_rgba: Option<Vec<u8>>,
         logo_width: u32,
         logo_height: u32,
         window_icon: Option<winit::window::Icon>,
+        kill_pid: Option<u32>,
     ) -> Self {
         Self {
             pdf_path,
+            pdf_title,
+            pdf_author,
             pages,
             logo_rgba,
             logo_width,
             logo_height,
             window_icon,
+            kill_pid,
         }
     }
 
@@ -1582,6 +2083,7 @@ impl Gui {
                 "C:\\Windows\\Fonts\\arial.ttf",
                 "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
             ];
+
             for path in &fallback_paths {
                 if let Ok(data) = std::fs::read(path) {
                     if let Ok(f) = ab_glyph::FontVec::try_from_vec(data) {
@@ -1663,10 +2165,19 @@ impl Gui {
             default_font,
             logo_image,
             window_icon: self.window_icon,
-            layout_mode: LayoutMode::Continuous,
+            layout_mode: LayoutMode::SinglePage,
             left_menu_open: false,
+            top_menu_open: false,
+            recent_menu_open: false,
             page_input_active: false,
             page_input_text: String::new(),
+            surface_size: (0, 0),
+            last_draw_time: std::time::Instant::now(),
+            is_loading_next: false,
+            kill_pid: self.kill_pid,
+            pdf_title: self.pdf_title,
+            pdf_author: self.pdf_author,
+            view_lecturas: false,
         };
         event_loop.run_app(&mut app)?;
         Ok(())
@@ -2082,5 +2593,56 @@ fn get_distance_to_viewport(page_y: f32, page_height: f32, window_height: f32) -
     } else {
         0.0
     }
+}
+
+// Recent Files Utilities
+fn get_recent_files_path() -> std::path::PathBuf {
+    let mut path = if let Ok(profile) = std::env::var("USERPROFILE") {
+        std::path::PathBuf::from(profile)
+    } else if let Ok(home) = std::env::var("HOME") {
+        std::path::PathBuf::from(home)
+    } else {
+        std::env::current_dir().unwrap_or_default()
+    };
+    path.push(".adobo_recent.txt");
+    path
+}
+
+pub fn add_recent_file(file_path: &str) {
+    if file_path.is_empty() { return; }
+    let path = get_recent_files_path();
+    let mut files = load_recent_files();
+    
+    files.retain(|x| x != file_path);
+    files.insert(0, file_path.to_string());
+    
+    files.truncate(5);
+    
+    if let Ok(mut f) = std::fs::File::create(path) {
+        use std::io::Write;
+        for file in files {
+            writeln!(f, "{}", file).ok();
+        }
+    }
+}
+
+pub fn load_recent_files() -> Vec<String> {
+    let path = get_recent_files_path();
+    let mut files = Vec::new();
+    if let Ok(mut f) = std::fs::File::open(path) {
+        use std::io::Read;
+        let mut contents = String::new();
+        if f.read_to_string(&mut contents).is_ok() {
+            for line in contents.lines() {
+                let line = line.trim();
+                if !line.is_empty() {
+                    if std::path::Path::new(line).exists() {
+                        files.push(line.to_string());
+                    }
+                }
+            }
+        }
+    }
+    files
 }
 
