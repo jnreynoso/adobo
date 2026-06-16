@@ -290,6 +290,22 @@ impl App {
         width
     }
 
+    fn truncate_text_with_ellipsis(&self, text: &str, max_width: f64, size: f32, font: &FontVec) -> String {
+        if self.measure_text_width(text, size, font) as f64 <= max_width {
+            return text.to_string();
+        }
+        
+        let mut truncated = text.to_string();
+        while !truncated.is_empty() {
+            truncated.pop();
+            let candidate = format!("{}...", truncated);
+            if self.measure_text_width(&candidate, size, font) as f64 <= max_width {
+                return candidate;
+            }
+        }
+        "...".to_string()
+    }
+
     fn draw_text_to_scene(&self, scene: &mut Scene, text: &str, start_x: f64, y: f64, size: f64, font: &FontVec, color: vello::peniko::Color) {
         let scale_factor = size / font.units_per_em().unwrap_or(1000.0) as f64;
         let mut current_x = start_x;
@@ -431,10 +447,10 @@ impl App {
         let w2 = self.measure_text_width(paragraph2, sub_size as f32, font) as f64;
         let w3 = self.measure_text_width(paragraph3, sub_size as f32, font) as f64;
 
-        let lw = 256.0;
-        let lh = 256.0;
+        let lw = 384.0;
+        let lh = 384.0;
         let total_content_height = lh + 80.0 + 80.0 + 80.0 + 80.0;
-        let start_y = ((height - total_content_height) / 2.0).max(50.0);
+        let start_y = ((height - total_content_height) / 2.0 - 80.0).max(50.0);
 
         let ly = start_y;
         let ty = start_y + lh + 80.0;
@@ -716,7 +732,9 @@ impl App {
                             scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
                         }
                         let display_name = std::path::Path::new(file).file_name().and_then(|n| n.to_str()).unwrap_or(file);
-                        self.draw_text_to_scene(scene, display_name, top_menu_x + 20.0, item_y + 32.0, 24.0, font, vello::peniko::Color::WHITE);
+                        let max_text_width = dyn_menu_w - 40.0;
+                        let elided_name = self.truncate_text_with_ellipsis(display_name, max_text_width, 24.0, font);
+                        self.draw_text_to_scene(scene, &elided_name, top_menu_x + 20.0, item_y + 32.0, 24.0, font, vello::peniko::Color::WHITE);
                     }
                 } else {
                     let dyn_menu_w = 320.0;
