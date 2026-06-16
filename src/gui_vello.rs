@@ -2795,10 +2795,11 @@ fn run_worker_thread(
             });
             let parsed_cmds = match parser.get_page_content(page_idx) {
                 Ok(content) => {
+                    let page_images = parser.get_page_images(page_idx).unwrap_or_default();
                     if render_epoch.load(Ordering::Relaxed) != current_epoch {
                         break 'render false;
                     }
-                    if let Some(cmds) = interpreter.process(page_idx, &content, page_rect, Some(&render_epoch), Some(current_epoch)) {
+                    if let Some(cmds) = interpreter.process(page_idx, &content, page_rect, Some(&render_epoch), Some(current_epoch), &page_images) {
                         cmds
                     } else {
                         break 'render false;
@@ -2832,7 +2833,7 @@ fn run_worker_thread(
                     if render_epoch.load(Ordering::Relaxed) != current_epoch {
                         break 'render false;
                     }
-                    let DrawCommand::Text { chars, local_y, size, font_name, .. } = cmd;
+                    if let DrawCommand::Text { chars, local_y, size, font_name, .. } = cmd {
                     let (_, cmd_font_key) = select_font_and_key(font_name);
                     if cmd_font_key != font_key { continue; }
 
@@ -2909,8 +2910,8 @@ fn run_worker_thread(
                             }
                         }
                     }
+                    }
                 }
-
                 let path_opt = if has_glyphs {
                     Some(path_builder)
                 } else {
@@ -2925,6 +2926,13 @@ fn run_worker_thread(
         let mut page_scene = vello::Scene::new();
         
         let rect = kurbo::Rect::new(0.0, 0.0, page_rect.width as f64, page_rect.height as f64);
+        page_scene.push_layer(
+            vello::peniko::Fill::NonZero,
+            vello::peniko::BlendMode::default(),
+            1.0,
+            kurbo::Affine::scale(zoom as f64),
+            &rect,
+        );
         page_scene.fill(
             vello::peniko::Fill::NonZero,
             kurbo::Affine::scale(zoom as f64),
@@ -2948,6 +2956,67 @@ fn run_worker_thread(
                 );
             }
         }
+
+        for cmd in commands.iter() {
+            if let DrawCommand::Image { image, transform, .. } = cmd {
+                let mut decoded = None;
+                if image.filter == "DCTDecode" {
+                    decoded = image::load_from_memory(&image.data).ok();
+                } else if image.filter == "FlateDecode" || image.filter.is_empty() {
+                    use std::io::Read;
+                    let raw_pixels = if image.filter == "FlateDecode" {
+                        let mut decoder = flate2::read::ZlibDecoder::new(image.data.as_slice());
+                        let mut buf = Vec::new();
+                        let _ = decoder.read_to_end(&mut buf);
+                        buf
+                    } else {
+                        image.data.clone()
+                    };
+                    
+                    if !raw_pixels.is_empty() {
+                        if image.color_space == "DeviceRGB" {
+                            if let Some(img_buf) = image::RgbImage::from_raw(image.width, image.height, raw_pixels) {
+                                decoded = Some(image::DynamicImage::ImageRgb8(img_buf));
+                            }
+                        } else if image.color_space == "DeviceGray" {
+                            if let Some(img_buf) = image::GrayImage::from_raw(image.width, image.height, raw_pixels) {
+                                decoded = Some(image::DynamicImage::ImageLuma8(img_buf));
+                            }
+                        }
+                    }
+                }
+                
+                if let Some(img) = decoded {
+                    let rgba8 = img.into_rgba8();
+                    let raw_data = rgba8.into_raw();
+                    let img_data = vello::peniko::ImageData {
+                        data: vello::peniko::Blob::new(std::sync::Arc::new(raw_data)),
+                        format: vello::peniko::ImageFormat::Rgba8,
+                        alpha_type: vello::peniko::ImageAlphaType::Alpha,
+                        width: image.width,
+                        height: image.height,
+                    };
+                    let img_brush = vello::peniko::Brush::Image(vello::peniko::ImageBrush::new(img_data));
+                    
+                    let img_transform = kurbo::Affine::new([
+                        transform[0] as f64 / image.width as f64,
+                        -transform[1] as f64 / image.width as f64,
+                        -transform[2] as f64 / image.height as f64,
+                        transform[3] as f64 / image.height as f64,
+                        transform[2] as f64 + transform[4] as f64,
+                        page_rect.height as f64 - transform[3] as f64 - transform[5] as f64, 
+                    ]);
+                    page_scene.fill(
+                        vello::peniko::Fill::NonZero,
+                        kurbo::Affine::scale(zoom as f64) * img_transform,
+                        &img_brush,
+                        None,
+                        &kurbo::Rect::new(0.0, 0.0, image.width as f64, image.height as f64),
+                    );
+                }
+            }
+        }
+        page_scene.pop_layer();
 
         tx_response.send(WorkerMessage::PageRendered {
             page_idx,

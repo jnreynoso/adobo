@@ -22,10 +22,10 @@ fn main() {
             .unwrap(),
     );
 
-    let pdf_fonts = parser.find_fonts();
-    let mut font_encodings = std::collections::HashMap::new();
-    let mut font_widths = std::collections::HashMap::new();
-    let mut font_names = std::collections::HashMap::new();
+    let _pdf_fonts = parser.find_fonts();
+    let font_encodings = std::collections::HashMap::new();
+    let font_widths = std::collections::HashMap::new();
+    let font_names = std::collections::HashMap::new();
 
     // Simplistic mock for the interpreter
     let interpreter = ufreader::interpreter::Interpreter::new(
@@ -50,12 +50,13 @@ fn main() {
                 height: 842.0,
             });
 
-        if let Some(cmds) = interpreter.process(i, &content, page_rect, Some(&epoch), Some(0)) {
-            println!("Page {} commands: {}", i, cmds.len());
+        let page_images = parser.get_page_images(i).unwrap_or_default();
+        if let Some(cmds) = interpreter.process(i, &content, page_rect, Some(&epoch), Some(0), &page_images) {
+            println!("Page {} has {} commands", i, cmds.len());
             let mut text_count = 0;
             let mut total_chars = 0;
             let mut outline_count = 0;
-            let mut has_glyphs = false;
+            let _has_glyphs = false;
             let mut builder = kurbo::BezPath::new();
             use ab_glyph::Font;
             for cmd in cmds {
@@ -68,8 +69,7 @@ fn main() {
                     for (c, x, expected_w) in chars {
                         let glyph_id = font.glyph_id(c);
                         if let Some(outline) = font.outline(glyph_id) {
-                            outline_count += 1;
-                            has_glyphs = true;
+                            outline_count += outline.curves.len();
                             let actual_w = font.h_advance_unscaled(glyph_id) * scale_factor;
                             let h_squeeze = if actual_w > 0.0 && expected_w > 0.0 {
                                 expected_w / actual_w

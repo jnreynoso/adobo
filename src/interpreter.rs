@@ -17,6 +17,7 @@ pub struct GraphicsState {
     pub word_spacing: f32,
     pub horiz_scaling: f32,
     pub text_rise: f32,
+    pub ctm: [f32; 6],
 }
 
 impl GraphicsState {
@@ -36,6 +37,7 @@ impl GraphicsState {
             word_spacing: 0.0,
             horiz_scaling: 100.0,
             text_rise: 0.0,
+            ctm: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
         }
     }
 }
@@ -216,6 +218,7 @@ impl Interpreter {
         page_rect: crate::parser::PageRect,
         render_epoch: Option<&std::sync::atomic::AtomicUsize>,
         current_epoch: Option<usize>,
+        page_images: &HashMap<String, crate::parser::PdfImage>,
     ) -> Option<Vec<DrawCommand>> {
         let mut commands = Vec::new();
         let mut state = GraphicsState::new();
@@ -329,9 +332,32 @@ impl Interpreter {
                         let a = String::from_utf8_lossy(&tokens[idx - 6])
                             .parse::<f32>()
                             .unwrap_or(1.0);
+                        let b = String::from_utf8_lossy(&tokens[idx - 5])
+                            .parse::<f32>()
+                            .unwrap_or(0.0);
+                        let c = String::from_utf8_lossy(&tokens[idx - 4])
+                            .parse::<f32>()
+                            .unwrap_or(0.0);
                         let d = String::from_utf8_lossy(&tokens[idx - 3])
                             .parse::<f32>()
                             .unwrap_or(1.0);
+                        let e = String::from_utf8_lossy(&tokens[idx - 2])
+                            .parse::<f32>()
+                            .unwrap_or(0.0);
+                        let f = String::from_utf8_lossy(&tokens[idx - 1])
+                            .parse::<f32>()
+                            .unwrap_or(0.0);
+
+                        let old = state.ctm;
+                        state.ctm = [
+                            old[0] * a + old[2] * b,
+                            old[1] * a + old[3] * b,
+                            old[0] * c + old[2] * d,
+                            old[1] * c + old[3] * d,
+                            old[0] * e + old[2] * f + old[4],
+                            old[1] * e + old[3] * f + old[5],
+                        ];
+
                         state.ctm_scale_x *= if a == 0.0 { 1.0 } else { a.abs() };
                         state.ctm_scale_y *= if d == 0.0 { 1.0 } else { d.abs() };
                     }
@@ -518,6 +544,24 @@ impl Interpreter {
                         }
                     }
                 }
+                "Do" => {
+                    if idx >= 1 {
+                        let name = String::from_utf8_lossy(&tokens[idx - 1])
+                            .trim_start_matches('/')
+                            .to_string();
+                        if let Some(img) = page_images.get(&name) {
+                            let mut img_transform = state.ctm;
+                            img_transform[4] -= page_rect.x;
+                            img_transform[5] -= page_rect.y;
+                            commands.push(DrawCommand::Image {
+                                page_idx,
+                                name,
+                                image: img.clone(),
+                                transform: img_transform,
+                            });
+                        }
+                    }
+                }
                 _ => {}
             }
             idx += 1;
@@ -535,5 +579,11 @@ pub enum DrawCommand {
         local_y: f32,
         size: f32,
         font_name: String,
+    },
+    Image {
+        page_idx: usize,
+        name: String,
+        image: crate::parser::PdfImage,
+        transform: [f32; 6],
     },
 }

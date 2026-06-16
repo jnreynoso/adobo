@@ -22,6 +22,16 @@ pub struct PageRect {
     pub height: f32,
 }
 
+#[derive(Debug, Clone)]
+pub struct PdfImage {
+    pub width: u32,
+    pub height: u32,
+    pub data: Vec<u8>,
+    pub filter: String,
+    pub color_space: String,
+    pub bits_per_component: u32,
+}
+
 #[derive(Clone, Debug)]
 enum XrefEntry {
     Normal(u64),
@@ -523,6 +533,62 @@ impl Parser {
             width: 595.0,
             height: 842.0,
         })
+    }
+
+    pub fn get_page_images(&mut self, page_index: usize) -> io::Result<HashMap<String, PdfImage>> {
+        let root_ref = self
+            .get_root()
+            .cloned()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Root not found"))?;
+        let root = self.resolve_reference(&root_ref)?;
+        let mut images = HashMap::new();
+
+        if let PdfObject::Dictionary(root_dict) = root {
+            let pages_ref = root_dict
+                .get("Pages")
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Pages not found"))?;
+            let page_obj_ref = self.find_page_in_tree(pages_ref, page_index)?;
+            let page_obj = self.resolve_reference(&page_obj_ref)?;
+
+            if let PdfObject::Dictionary(page_dict) = page_obj {
+                if let Some(res_ref) = page_dict.get("Resources") {
+                    let resources = self.resolve_reference(res_ref)?;
+                    if let PdfObject::Dictionary(res_dict) = resources {
+                        if let Some(xobj_ref) = res_dict.get("XObject") {
+                            let xobj = self.resolve_reference(xobj_ref)?;
+                            if let PdfObject::Dictionary(xobj_dict) = xobj {
+                                for (name, obj_ref) in xobj_dict {
+                                    if let Ok(PdfObject::Stream(stream_dict, data)) = self.resolve_reference(&obj_ref) {
+                                        let is_image = if let Some(PdfObject::Name(subtype)) = stream_dict.get("Subtype") {
+                                            subtype == "Image"
+                                        } else { false };
+
+                                        if is_image {
+                                            let width = if let Some(PdfObject::Integer(w)) = stream_dict.get("Width") { *w as u32 } else { 0 };
+                                            let height = if let Some(PdfObject::Integer(h)) = stream_dict.get("Height") { *h as u32 } else { 0 };
+                                            let bits = if let Some(PdfObject::Integer(b)) = stream_dict.get("BitsPerComponent") { *b as u32 } else { 8 };
+                                            let filter = if let Some(PdfObject::Name(f)) = stream_dict.get("Filter") { f.clone() }
+                                                         else if let Some(PdfObject::Array(arr)) = stream_dict.get("Filter") {
+                                                             if let Some(PdfObject::Name(f)) = arr.get(0) { f.clone() } else { String::new() }
+                                                         } else { String::new() };
+                                            let cs = if let Some(PdfObject::Name(c)) = stream_dict.get("ColorSpace") { c.clone() }
+                                                     else if let Some(PdfObject::Array(arr)) = stream_dict.get("ColorSpace") {
+                                                         if let Some(PdfObject::Name(c)) = arr.get(0) { c.clone() } else { String::new() }
+                                                     } else { String::new() };
+
+                                            images.insert(name.clone(), PdfImage {
+                                                width, height, data, filter, color_space: cs, bits_per_component: bits
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(images)
     }
 
     pub fn get_page_content(&mut self, page_index: usize) -> io::Result<Vec<u8>> {

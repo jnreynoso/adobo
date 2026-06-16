@@ -2012,10 +2012,11 @@ fn run_worker_thread(
             });
             let parsed_cmds = match parser.get_page_content(page_idx) {
                 Ok(content) => {
+                    let page_images = parser.get_page_images(page_idx).unwrap_or_default();
                     if render_epoch.load(Ordering::Relaxed) != current_epoch {
                         break 'render false;
                     }
-                    if let Some(cmds) = interpreter.process(page_idx, &content, page_rect, Some(&render_epoch), Some(current_epoch)) {
+                    if let Some(cmds) = interpreter.process(page_idx, &content, page_rect, Some(&render_epoch), Some(current_epoch), &page_images) {
                         cmds
                     } else {
                         break 'render false;
@@ -2049,7 +2050,7 @@ fn run_worker_thread(
                     if render_epoch.load(Ordering::Relaxed) != current_epoch {
                         break 'render false;
                     }
-                    let DrawCommand::Text { chars, local_y, size, font_name, .. } = cmd;
+                    if let DrawCommand::Text { chars, local_y, size, font_name, .. } = cmd {
                     let (_, cmd_font_key) = select_font_and_key(font_name);
                     if cmd_font_key != font_key { continue; }
 
@@ -2125,6 +2126,7 @@ fn run_worker_thread(
                                 }
                             }
                         }
+                    }
                     }
                 }
 
