@@ -30,7 +30,7 @@ fn main() {
         }
         
         println!("Running interpreter for page {}...", page_idx);
-        let mut interpreter = Interpreter::new(std::collections::HashMap::new(), std::collections::HashMap::new(), std::collections::HashMap::new(), std::collections::HashMap::new());
+        let interpreter = Interpreter::new(std::collections::HashMap::new(), std::collections::HashMap::new(), std::collections::HashMap::new(), std::collections::HashMap::new());
         let content = parser.get_page_content(page_idx).unwrap_or(vec![]);
         println!("Page content (first 500 bytes):\n{}", String::from_utf8_lossy(&content).chars().take(500).collect::<String>());
         let rect = parser.get_page_rect(page_idx).unwrap_or(ufreader::parser::PageRect{x:0.0, y:0.0, width: 595.0, height: 842.0});

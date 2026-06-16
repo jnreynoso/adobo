@@ -8,7 +8,7 @@ pub mod interpreter;
 
 pub mod db;
 
-use std::env;
+
 use parser::Parser;
 use gui_vello::Gui;
 
@@ -16,7 +16,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut pdf_path = String::new();
     let mut pages_info = Vec::new();
-    let mut page_count = 0;
+
     let mut kill_pid = None;
     let mut pdf_title = "Unknown".to_string();
     let mut pdf_author = "Unknown".to_string();
@@ -58,7 +58,7 @@ fn main() {
             std::process::exit(1);
         }
 
-        page_count = parser.get_page_count().unwrap_or(0);
+        let page_count = parser.get_page_count().unwrap_or(0);
         println!("Page Count: {}", page_count);
         
         pdf_title = parser.get_title().unwrap_or_else(|_| "".to_string());

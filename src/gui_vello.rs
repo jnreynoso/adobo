@@ -4,9 +4,7 @@ use winit::{
     event_loop::{ActiveEventLoop, EventLoop},
     window::{Window, WindowId},
 };
-use vello::{kurbo, peniko, Renderer, RendererOptions, Scene, AaConfig, AaSupport};
-use vello::wgpu;
-use std::rc::Rc;
+use vello::{kurbo, Scene};
 use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -190,6 +188,7 @@ impl App {
         }
     }
 
+    #[allow(dead_code)]
     fn calculate_fit_zoom(&self, width: u32, height: u32) -> f32 {
         if self.pages.is_empty() || width == 0 || height == 0 {
             return 1.0;
@@ -824,7 +823,7 @@ impl App {
         let btn_y_local = overlay_y + 12.0;
         let btn_size = 76.0;
 
-        let mut draw_btn = |scene: &mut Scene, bx: f64, label: &str, hovered: bool| {
+        let draw_btn = |scene: &mut Scene, bx: f64, label: &str, hovered: bool| {
             let btn_bg = vello::peniko::Color::from_rgb8(if hovered { 70 } else { 40 }, if hovered { 70 } else { 40 }, if hovered { 70 } else { 40 });
             let btn_rect = kurbo::Rect::new(bx, btn_y_local, bx + btn_size, btn_y_local + btn_size);
             scene.fill(
@@ -888,7 +887,7 @@ impl App {
 
         let p_btn_y_local = pag_overlay_y + 12.0;
 
-        let mut draw_nav_btn = |scene: &mut Scene, bx: f64, direction_left: bool, hovered: bool| {
+        let draw_nav_btn = |scene: &mut Scene, bx: f64, direction_left: bool, hovered: bool| {
             let btn_bg = vello::peniko::Color::from_rgb8(if hovered { 70 } else { 40 }, if hovered { 70 } else { 40 }, if hovered { 70 } else { 40 });
             let btn_rect = kurbo::Rect::new(bx, p_btn_y_local, bx + btn_size, p_btn_y_local + btn_size);
             scene.fill(
@@ -1188,7 +1187,7 @@ impl App {
         if let Some(window) = self.window.as_ref() { window.request_redraw(); }
     }
 
-    fn queue_page_requests(&self, width: u32, height: u32) {
+    fn queue_page_requests(&self, _width: u32, height: u32) {
         let page_count = self.pages.len();
         if page_count == 0 { return; }
         let epoch = self.render_epoch.load(Ordering::SeqCst);
@@ -1305,6 +1304,7 @@ impl App {
         }
     }
 
+    #[allow(dead_code)]
     fn record_access_only(&self, page_idx: usize) {
         let mut order = self.page_access_order.borrow_mut();
         if let Some(pos) = order.iter().position(|&x| x == page_idx) {

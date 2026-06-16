@@ -1563,7 +1563,7 @@ impl ApplicationHandler for App {
         }
 
         let mut got_any = false;
-        let epoch = self.render_epoch.load(Ordering::SeqCst);
+        let _epoch = self.render_epoch.load(Ordering::SeqCst);
         while let Ok(msg) = self.rx_worker.try_recv() {
             match msg {
                 WorkerMessage::PageRendered { page_idx, zoom, pixmap } => {
