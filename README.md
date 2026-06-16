@@ -1,6 +1,10 @@
 # Adobo Reader 🚀
 ### Visualizador de PDF Minimalista y Ultra-rápido Acelerado por GPU en Rust
 
+[![Descargar Instalador Wizard](https://img.shields.io/badge/Descargar-Instalador__Wizard-blue?style=for-the-badge&logo=windows)](https://github.com/jnreynoso/adobo/releases/latest/download/Instalador_Adobo.exe)
+
+[Ver todos los lanzamientos](https://github.com/jnreynoso/adobo/releases)
+
 Adobo Reader es un lector y visor de PDF diseñado bajo una filosofía minimalista y de alto rendimiento. En lugar de saturar la interfaz con herramientas de edición complejas y flujos pesados, Adobo se enfoca en proporcionar una lectura suave, instantánea y agradable. 
 
 > [!NOTE]
