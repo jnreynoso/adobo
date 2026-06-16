@@ -2982,8 +2982,12 @@ fn run_worker_thread(
                             if let Some(img_buf) = image::GrayImage::from_raw(image.width, image.height, raw_pixels) {
                                 decoded = Some(image::DynamicImage::ImageLuma8(img_buf));
                             }
+                        } else {
+                            eprintln!("Unsupported ColorSpace for FlateDecode: '{}'", image.color_space);
                         }
                     }
+                } else {
+                    eprintln!("Unsupported image Filter: '{}'", image.filter);
                 }
                 
                 if let Some(img) = decoded {

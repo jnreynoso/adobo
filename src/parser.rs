@@ -330,13 +330,19 @@ impl Parser {
                 let mut stream_data = vec![0; length];
                 reader.read_exact(&mut stream_data)?;
                 let mut final_data = stream_data;
-                if let Some(PdfObject::Name(filter)) = dict.get("Filter") {
-                    if filter == "FlateDecode" {
-                        let mut decoder = ZlibDecoder::new(&final_data[..]);
-                        let mut decoded = Vec::new();
-                        let _ = decoder.read_to_end(&mut decoded);
-                        final_data = decoded;
-                    }
+                let is_flate = if let Some(PdfObject::Name(filter)) = dict.get("Filter") {
+                    filter == "FlateDecode"
+                } else if let Some(PdfObject::Array(arr)) = dict.get("Filter") {
+                    if let Some(PdfObject::Name(filter)) = arr.get(0) {
+                        filter == "FlateDecode"
+                    } else { false }
+                } else { false };
+
+                if is_flate {
+                    let mut decoder = ZlibDecoder::new(&final_data[..]);
+                    let mut decoded = Vec::new();
+                    let _ = decoder.read_to_end(&mut decoded);
+                    final_data = decoded;
                 }
                 return Ok(PdfObject::Stream(dict.clone(), final_data));
             }
@@ -551,8 +557,25 @@ impl Parser {
             let page_obj = self.resolve_reference(&page_obj_ref)?;
 
             if let PdfObject::Dictionary(page_dict) = page_obj {
-                if let Some(res_ref) = page_dict.get("Resources") {
-                    let resources = self.resolve_reference(res_ref)?;
+                let mut current_node = Some(page_dict.clone());
+                let mut resources_ref = None;
+
+                while let Some(node) = current_node {
+                    if let Some(res) = node.get("Resources") {
+                        resources_ref = Some(res.clone());
+                        break;
+                    }
+                    if let Some(parent_ref) = node.get("Parent") {
+                        if let Ok(PdfObject::Dictionary(parent_dict)) = self.resolve_reference(parent_ref) {
+                            current_node = Some(parent_dict);
+                            continue;
+                        }
+                    }
+                    break;
+                }
+
+                if let Some(res_ref) = resources_ref {
+                    let resources = self.resolve_reference(&res_ref)?;
                     if let PdfObject::Dictionary(res_dict) = resources {
                         if let Some(xobj_ref) = res_dict.get("XObject") {
                             let xobj = self.resolve_reference(xobj_ref)?;
