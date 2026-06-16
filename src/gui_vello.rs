@@ -722,7 +722,23 @@ impl App {
                         let h_rect = kurbo::Rect::new(top_menu_x + 1.0, back_y, top_menu_x + dyn_menu_w - 1.0, back_y + 45.0);
                         scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
                     }
-                    self.draw_text_to_scene(scene, "< Volver", top_menu_x + 20.0, back_y + 32.0, 24.0, font, vello::peniko::Color::WHITE);
+                    let mut arrow_path = kurbo::BezPath::new();
+                    // Horizontal line
+                    arrow_path.move_to((top_menu_x + 20.0, back_y + 22.0));
+                    arrow_path.line_to((top_menu_x + 36.0, back_y + 22.0));
+                    // Top slant
+                    arrow_path.move_to((top_menu_x + 20.0, back_y + 22.0));
+                    arrow_path.line_to((top_menu_x + 28.0, back_y + 14.0));
+                    // Bottom slant
+                    arrow_path.move_to((top_menu_x + 20.0, back_y + 22.0));
+                    arrow_path.line_to((top_menu_x + 28.0, back_y + 30.0));
+                    
+                    let arrow_stroke = kurbo::Stroke::new(2.5)
+                        .with_caps(kurbo::Cap::Round)
+                        .with_join(kurbo::Join::Round);
+                    scene.stroke(&arrow_stroke, kurbo::Affine::IDENTITY, vello::peniko::Color::WHITE, None, &arrow_path);
+                    
+                    self.draw_text_to_scene(scene, "Volver", top_menu_x + 48.0, back_y + 32.0, 24.0, font, vello::peniko::Color::WHITE);
                     
                     for (idx, file) in recents.iter().enumerate() {
                         let item_y = back_y + 50.0 + (idx as f64 * 50.0);
