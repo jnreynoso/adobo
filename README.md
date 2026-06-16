@@ -3,6 +3,9 @@
 
 Adobo Reader es un lector y visor de PDF diseñado bajo una filosofía minimalista y de alto rendimiento. En lugar de saturar la interfaz con herramientas de edición complejas y flujos pesados, Adobo se enfoca en proporcionar una lectura suave, instantánea y agradable. 
 
+> [!NOTE]
+> **¿Por qué "Adobo"?** Además de su enfoque técnico, el nombre es un homenaje al **Adobo Arequipeño**, un plato emblemático y tradicional de la gastronomía peruana originario de la región de Arequipa. Este potaje de cerdo marinado en concho de chicha de jora y especias se consume tradicionalmente muy temprano por las mañanas, dando origen a la célebre costumbre y expresión local de los **"Lunes de Adobo.."**.
+
 Este documento explica en detalle la arquitectura del visor, el pipeline de procesamiento de documentos y las soluciones de ingeniería de software implementadas para erradicar cuellos de botella clásicos como la latencia de scroll, el parpadeo en el zoom y la sobrecarga de la CPU.
 
 ---
@@ -119,3 +122,10 @@ Se implementó una **Caché LRU (Least Recently Used)** con una capacidad dinám
 * **[src/interpreter.rs](file:///C:/Users/jreyn/OneDrive/Documents/Projects/ufreader/src/interpreter.rs):** Evaluador del árbol de comandos de visualización y máquina de estados gráficos del PDF.
 * **[src/object.rs](file:///C:/Users/jreyn/OneDrive/Documents/Projects/ufreader/src/object.rs):** Modelado y tipado de objetos del formato PDF (diccionarios, números, nombres, streams).
 * **[src/db.rs](file:///C:/Users/jreyn/OneDrive/Documents/Projects/ufreader/src/db.rs):** Persistencia de estado y configuración (lecturas recientes, dimensiones).
+
+---
+
+## 🔮 Próximo Lanzamiento (Roadmap)
+Para las siguientes versiones de Adobo Reader, se planea expandir el visor con funcionalidades colaborativas y de estudio, manteniendo la misma filosofía de alto rendimiento:
+1. **Capacidades de Apunte (Anotaciones):** Implementación de herramientas para subrayar, resaltar y añadir notas de texto o dibujos a mano alzada directamente sobre los vectores del PDF.
+2. **Salas de Lectura:** Espacios compartidos y sincronizados en tiempo real para que múltiples usuarios puedan leer el mismo documento, compartir apuntes y debatir en salas virtuales.
