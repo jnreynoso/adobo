@@ -1796,6 +1796,9 @@ fn run_worker_thread(
     tx_response: std::sync::mpsc::Sender<WorkerMessage>,
     proxy: winit::event_loop::EventLoopProxy<()>,
 ) {
+    if pdf_path.is_empty() {
+        return;
+    }
     let mut parser = match crate::parser::Parser::new(&pdf_path) {
         Ok(p) => p,
         Err(e) => {

@@ -112,6 +112,7 @@ pub struct App {
     pdf_title: String,
     pdf_author: String,
     view_lecturas: bool,
+    is_dragging_scrollbar: bool,
 }
 
 impl App {
@@ -430,11 +431,13 @@ impl App {
         let w2 = self.measure_text_width(paragraph2, sub_size as f32, font) as f64;
         let w3 = self.measure_text_width(paragraph3, sub_size as f32, font) as f64;
 
-        let total_content_height = 160.0 + 80.0 + 80.0 + 80.0 + 80.0;
+        let lw = 256.0;
+        let lh = 256.0;
+        let total_content_height = lh + 80.0 + 80.0 + 80.0 + 80.0;
         let start_y = ((height - total_content_height) / 2.0).max(50.0);
 
         let ly = start_y;
-        let ty = start_y + 160.0 + 80.0;
+        let ty = start_y + lh + 80.0;
         let ty_p1 = ty + 100.0;
         let ty_p2 = ty_p1 + 50.0;
         let ty_p3 = ty_p2 + 50.0;
@@ -454,8 +457,6 @@ impl App {
                 width: self.logo_width,
                 height: self.logo_height,
             };
-            let lw = 160.0;
-            let lh = 160.0;
             let lx = (width - lw) / 2.0;
             
             let sx = lw / logo.width as f64;
@@ -667,90 +668,92 @@ impl App {
         let border_color = vello::peniko::Color::from_rgb8(100, 100, 100);
         let bg_color = vello::peniko::Color::from_rgba8(25, 25, 25, 220);
 
-        // TOP-LEFT MENU (Abrir Archivo)
-        let top_menu_btn_x = 30.0;
-        let top_menu_btn_y = 30.0;
-        let top_menu_btn_w = 160.0;
-        let top_menu_btn_h = 64.0;
+        // TOP-LEFT MENU (Abrir Archivo) - only visible when no PDF is loaded
+        if !has_pdf {
+            let top_menu_btn_x = 30.0;
+            let top_menu_btn_y = 30.0;
+            let top_menu_btn_w = 160.0;
+            let top_menu_btn_h = 64.0;
 
-        let top_menu_x = 30.0;
-        let top_menu_y = top_menu_btn_y + top_menu_btn_h + 5.0;
+            let top_menu_x = 30.0;
+            let top_menu_y = top_menu_btn_y + top_menu_btn_h + 5.0;
 
-        // Draw top-left menu toggle button
-        let top_btn_rounded = kurbo::RoundedRect::new(top_menu_btn_x, top_menu_btn_y, top_menu_btn_x + top_menu_btn_w, top_menu_btn_y + top_menu_btn_h, 8.0);
-        let top_btn_bg_color = vello::peniko::Color::from_rgb8(
-            if hover_state == 30 { 70 } else { 25 },
-            if hover_state == 30 { 70 } else { 25 },
-            if hover_state == 30 { 70 } else { 25 },
-        );
-        scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, top_btn_bg_color, None, &top_btn_rounded);
-        scene.stroke(&stroke_style, kurbo::Affine::IDENTITY, border_color, None, &top_btn_rounded);
+            // Draw top-left menu toggle button
+            let top_btn_rounded = kurbo::RoundedRect::new(top_menu_btn_x, top_menu_btn_y, top_menu_btn_x + top_menu_btn_w, top_menu_btn_y + top_menu_btn_h, 8.0);
+            let top_btn_bg_color = vello::peniko::Color::from_rgb8(
+                if hover_state == 30 { 70 } else { 25 },
+                if hover_state == 30 { 70 } else { 25 },
+                if hover_state == 30 { 70 } else { 25 },
+            );
+            scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, top_btn_bg_color, None, &top_btn_rounded);
+            scene.stroke(&stroke_style, kurbo::Affine::IDENTITY, border_color, None, &top_btn_rounded);
 
-        self.draw_text_to_scene(scene, "Menu", top_menu_btn_x + 24.0, top_menu_btn_y + 44.0, 36.0, font, vello::peniko::Color::WHITE);
+            self.draw_text_to_scene(scene, "Menu", top_menu_btn_x + 24.0, top_menu_btn_y + 44.0, 36.0, font, vello::peniko::Color::WHITE);
 
-        if self.top_menu_open {
-            if self.recent_menu_open {
-                let recents = load_recent_files();
-                let item_count = recents.len() + 1;
-                let dyn_menu_h = (item_count as f64 * 50.0) + 20.0;
-                let dyn_menu_w = 500.0;
-                
-                let top_menu_rounded = kurbo::RoundedRect::new(top_menu_x, top_menu_y, top_menu_x + dyn_menu_w, top_menu_y + dyn_menu_h, 8.0);
-                scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, bg_color, None, &top_menu_rounded);
-                scene.stroke(&stroke_style, kurbo::Affine::IDENTITY, border_color, None, &top_menu_rounded);
-                
-                let back_y = top_menu_y + 10.0;
-                if hover_state == 35 {
-                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, back_y, top_menu_x + dyn_menu_w - 1.0, back_y + 45.0);
-                    scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
-                }
-                self.draw_text_to_scene(scene, "< Volver", top_menu_x + 20.0, back_y + 32.0, 24.0, font, vello::peniko::Color::WHITE);
-                
-                for (idx, file) in recents.iter().enumerate() {
-                    let item_y = back_y + 50.0 + (idx as f64 * 50.0);
-                    let h_state = 36 + idx as u8;
-                    if hover_state == h_state {
-                        let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item_y, top_menu_x + dyn_menu_w - 1.0, item_y + 45.0);
+            if self.top_menu_open {
+                if self.recent_menu_open {
+                    let recents = load_recent_files();
+                    let item_count = recents.len() + 1;
+                    let dyn_menu_h = (item_count as f64 * 50.0) + 20.0;
+                    let dyn_menu_w = 500.0;
+                    
+                    let top_menu_rounded = kurbo::RoundedRect::new(top_menu_x, top_menu_y, top_menu_x + dyn_menu_w, top_menu_y + dyn_menu_h, 8.0);
+                    scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, bg_color, None, &top_menu_rounded);
+                    scene.stroke(&stroke_style, kurbo::Affine::IDENTITY, border_color, None, &top_menu_rounded);
+                    
+                    let back_y = top_menu_y + 10.0;
+                    if hover_state == 35 {
+                        let h_rect = kurbo::Rect::new(top_menu_x + 1.0, back_y, top_menu_x + dyn_menu_w - 1.0, back_y + 45.0);
                         scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
                     }
-                    let display_name = std::path::Path::new(file).file_name().and_then(|n| n.to_str()).unwrap_or(file);
-                    self.draw_text_to_scene(scene, display_name, top_menu_x + 20.0, item_y + 32.0, 24.0, font, vello::peniko::Color::WHITE);
-                }
-            } else {
-                let dyn_menu_w = 320.0;
-                let dyn_menu_h = 220.0;
-                
-                let top_menu_rounded = kurbo::RoundedRect::new(top_menu_x, top_menu_y, top_menu_x + dyn_menu_w, top_menu_y + dyn_menu_h, 8.0);
-                scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, bg_color, None, &top_menu_rounded);
-                scene.stroke(&stroke_style, kurbo::Affine::IDENTITY, border_color, None, &top_menu_rounded);
-                
-                let item1_y = top_menu_y + 10.0;
-                if hover_state == 31 {
-                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item1_y, top_menu_x + dyn_menu_w - 1.0, item1_y + 45.0);
-                    scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
-                }
-                self.draw_text_to_scene(scene, "Abrir archivo...", top_menu_x + 20.0, item1_y + 32.0, 28.0, font, vello::peniko::Color::WHITE);
-                
-                let item2_y = item1_y + 50.0;
-                if hover_state == 32 {
-                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item2_y, top_menu_x + dyn_menu_w - 1.0, item2_y + 45.0);
-                    scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
-                }
-                self.draw_text_to_scene(scene, "Archivos recientes", top_menu_x + 20.0, item2_y + 32.0, 28.0, font, vello::peniko::Color::WHITE);
+                    self.draw_text_to_scene(scene, "< Volver", top_menu_x + 20.0, back_y + 32.0, 24.0, font, vello::peniko::Color::WHITE);
+                    
+                    for (idx, file) in recents.iter().enumerate() {
+                        let item_y = back_y + 50.0 + (idx as f64 * 50.0);
+                        let h_state = 36 + idx as u8;
+                        if hover_state == h_state {
+                            let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item_y, top_menu_x + dyn_menu_w - 1.0, item_y + 45.0);
+                            scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
+                        }
+                        let display_name = std::path::Path::new(file).file_name().and_then(|n| n.to_str()).unwrap_or(file);
+                        self.draw_text_to_scene(scene, display_name, top_menu_x + 20.0, item_y + 32.0, 24.0, font, vello::peniko::Color::WHITE);
+                    }
+                } else {
+                    let dyn_menu_w = 320.0;
+                    let dyn_menu_h = 220.0;
+                    
+                    let top_menu_rounded = kurbo::RoundedRect::new(top_menu_x, top_menu_y, top_menu_x + dyn_menu_w, top_menu_y + dyn_menu_h, 8.0);
+                    scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, bg_color, None, &top_menu_rounded);
+                    scene.stroke(&stroke_style, kurbo::Affine::IDENTITY, border_color, None, &top_menu_rounded);
+                    
+                    let item1_y = top_menu_y + 10.0;
+                    if hover_state == 31 {
+                        let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item1_y, top_menu_x + dyn_menu_w - 1.0, item1_y + 45.0);
+                        scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
+                    }
+                    self.draw_text_to_scene(scene, "Abrir archivo...", top_menu_x + 20.0, item1_y + 32.0, 28.0, font, vello::peniko::Color::WHITE);
+                    
+                    let item2_y = item1_y + 50.0;
+                    if hover_state == 32 {
+                        let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item2_y, top_menu_x + dyn_menu_w - 1.0, item2_y + 45.0);
+                        scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
+                    }
+                    self.draw_text_to_scene(scene, "Archivos recientes", top_menu_x + 20.0, item2_y + 32.0, 28.0, font, vello::peniko::Color::WHITE);
 
-                let item3_y = item2_y + 50.0;
-                if hover_state == 33 {
-                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item3_y, top_menu_x + dyn_menu_w - 1.0, item3_y + 45.0);
-                    scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
-                }
-                self.draw_text_to_scene(scene, "Lecturas", top_menu_x + 20.0, item3_y + 32.0, 28.0, font, vello::peniko::Color::WHITE);
+                    let item3_y = item2_y + 50.0;
+                    if hover_state == 33 {
+                        let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item3_y, top_menu_x + dyn_menu_w - 1.0, item3_y + 45.0);
+                        scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
+                    }
+                    self.draw_text_to_scene(scene, "Lecturas", top_menu_x + 20.0, item3_y + 32.0, 28.0, font, vello::peniko::Color::WHITE);
 
-                let item4_y = item3_y + 50.0;
-                if hover_state == 34 {
-                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item4_y, top_menu_x + dyn_menu_w - 1.0, item4_y + 45.0);
-                    scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
+                    let item4_y = item3_y + 50.0;
+                    if hover_state == 34 {
+                        let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item4_y, top_menu_x + dyn_menu_w - 1.0, item4_y + 45.0);
+                        scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
+                    }
+                    self.draw_text_to_scene(scene, "Salir", top_menu_x + 20.0, item4_y + 32.0, 28.0, font, vello::peniko::Color::WHITE);
                 }
-                self.draw_text_to_scene(scene, "Salir", top_menu_x + 20.0, item4_y + 32.0, 28.0, font, vello::peniko::Color::WHITE);
             }
         }
 
@@ -1062,6 +1065,8 @@ impl App {
             }
         }
 
+
+
         if let Some(t) = self.loading_timeout {
             if t.elapsed().as_secs_f32() <= 1.5 {
                 let bg_rect = kurbo::Rect::new(0.0, 0.0, width, height);
@@ -1080,6 +1085,73 @@ impl App {
                 self.draw_text_to_scene(scene, title, tx, ty, title_size, font, vello::peniko::Color::WHITE);
             }
         }
+    }
+
+    fn draw_scrollbar_to_scene(&self, scene: &mut Scene, width: f64, height: f64) {
+        let total_h_scrollbar = self.pages.last().map(|p| p.top_y + p.height).unwrap_or(0.0) * self.zoom;
+        let min_scroll = -(total_h_scrollbar - height as f32 + 100.0).max(0.0);
+        let scroll_range = 100.0 - min_scroll;
+        
+        if scroll_range > 0.0 {
+            let track_w = 20.0;
+            let track_x = width - track_w - 10.0;
+            let track_y = 20.0;
+            let track_h = height - 40.0;
+
+            let track_rect = kurbo::RoundedRect::new(
+                track_x, track_y, track_x + track_w, track_y + track_h, 8.0
+            );
+            scene.fill(
+                vello::peniko::Fill::NonZero,
+                kurbo::Affine::IDENTITY,
+                vello::peniko::Color::from_rgba8(30, 30, 30, 150),
+                None,
+                &track_rect,
+            );
+
+            let thumb_h = ((height as f32 / (total_h_scrollbar + 100.0)) * track_h as f32).clamp(40.0, track_h as f32) as f64;
+            let scroll_pct = (100.0 - self.scroll_y) / scroll_range;
+            
+            let thumb_y = track_y + (scroll_pct as f64) * (track_h - thumb_h);
+            let thumb_rect = kurbo::RoundedRect::new(
+                track_x, thumb_y, track_x + track_w, thumb_y + thumb_h, 8.0
+            );
+            
+            let thumb_color = if self.is_dragging_scrollbar {
+                vello::peniko::Color::from_rgba8(180, 180, 180, 255)
+            } else {
+                vello::peniko::Color::from_rgba8(120, 120, 120, 200)
+            };
+            
+            scene.fill(
+                vello::peniko::Fill::NonZero,
+                kurbo::Affine::IDENTITY,
+                thumb_color,
+                None,
+                &thumb_rect,
+            );
+        }
+    }
+
+    fn update_scroll_from_mouse_y(&mut self, my: f32) {
+        let height = self.window_size.height as f32;
+        let track_y = 20.0;
+        let track_h = height - 40.0;
+        let total_h_scrollbar = self.pages.last().map(|p| p.top_y + p.height).unwrap_or(0.0) * self.zoom;
+        let thumb_h = ((height / (total_h_scrollbar + 100.0)) * track_h).clamp(40.0, track_h);
+        
+        let movable_range = track_h - thumb_h;
+        if movable_range <= 0.0 { return; }
+        
+        let relative_y = (my - track_y - thumb_h / 2.0).clamp(0.0, movable_range);
+        let scroll_pct = relative_y / movable_range;
+        
+        let min_scroll = -(total_h_scrollbar - height + 100.0).max(0.0);
+        let scroll_range = 100.0 - min_scroll;
+        
+        self.scroll_y = 100.0 - (scroll_pct * scroll_range);
+        self.target_scroll_y = self.scroll_y;
+        if let Some(window) = self.window.as_ref() { window.request_redraw(); }
     }
 
     fn queue_page_requests(&self, width: u32, height: u32) {
@@ -1237,6 +1309,20 @@ impl App {
         let width = self.window_size.width as f32;
         let height = self.window_size.height as f32;
 
+        if !self.pdf_path.is_empty() {
+            let track_w = 20.0;
+            let track_x = width - track_w - 10.0;
+            let track_y = 20.0;
+            let track_h = height - 40.0;
+            let total_h_scrollbar = self.pages.last().map(|p| p.top_y + p.height).unwrap_or(0.0) * self.zoom;
+            let min_scroll = -(total_h_scrollbar - height + 100.0).max(0.0);
+            let scroll_range = 100.0 - min_scroll;
+            
+            if scroll_range > 0.0 && mx >= track_x && mx <= track_x + track_w && my >= track_y && my <= track_y + track_h {
+                return 60;
+            }
+        }
+
         if self.view_lecturas {
             if mx >= 30.0 && mx <= 190.0 && my >= 30.0 && my <= 94.0 {
                 return 50; // Volver button
@@ -1280,57 +1366,59 @@ impl App {
 
         let has_pdf = !self.pages.is_empty();
 
-        // Top-left menu (Abrir Archivo)
-        let top_menu_btn_x = 30.0;
-        let top_menu_btn_y = 30.0;
-        let top_menu_btn_w = 160.0;
-        let top_menu_btn_h = 64.0;
+        // Top-left menu (Abrir Archivo) - only active when no PDF is loaded
+        if !has_pdf {
+            let top_menu_btn_x = 30.0;
+            let top_menu_btn_y = 30.0;
+            let top_menu_btn_w = 160.0;
+            let top_menu_btn_h = 64.0;
 
-        if self.top_menu_open {
-            let top_menu_x = 30.0;
-            let top_menu_y = top_menu_btn_y + top_menu_btn_h + 5.0;
+            if self.top_menu_open {
+                let top_menu_x = 30.0;
+                let top_menu_y = top_menu_btn_y + top_menu_btn_h + 5.0;
 
-            if self.recent_menu_open {
-                let recents = load_recent_files();
-                let item_count = recents.len() + 1;
-                let dyn_menu_h = (item_count as f32 * 50.0) + 20.0;
-                let dyn_menu_w = 500.0;
+                if self.recent_menu_open {
+                    let recents = load_recent_files();
+                    let item_count = recents.len() + 1;
+                    let dyn_menu_h = (item_count as f32 * 50.0) + 20.0;
+                    let dyn_menu_w = 500.0;
 
-                if mx >= top_menu_x && mx <= top_menu_x + dyn_menu_w && my >= top_menu_y && my <= top_menu_y + dyn_menu_h {
-                    let relative_y = my - top_menu_y - 10.0;
-                    if relative_y >= 0.0 {
-                        let idx = (relative_y / 50.0).floor() as i32;
-                        if idx == 0 {
-                            return 35; // Back button
-                        } else if idx > 0 && idx <= recents.len() as i32 {
-                            return 36 + (idx - 1) as u8; // File item
+                    if mx >= top_menu_x && mx <= top_menu_x + dyn_menu_w && my >= top_menu_y && my <= top_menu_y + dyn_menu_h {
+                        let relative_y = my - top_menu_y - 10.0;
+                        if relative_y >= 0.0 {
+                            let idx = (relative_y / 50.0).floor() as i32;
+                            if idx == 0 {
+                                return 35; // Back button
+                            } else if idx > 0 && idx <= recents.len() as i32 {
+                                return 36 + (idx - 1) as u8; // File item
+                            }
                         }
                     }
-                }
-            } else {
-                let dyn_menu_w = 320.0;
-                let dyn_menu_h = 220.0;
+                } else {
+                    let dyn_menu_w = 320.0;
+                    let dyn_menu_h = 220.0;
 
-                if mx >= top_menu_x && mx <= top_menu_x + dyn_menu_w && my >= top_menu_y && my <= top_menu_y + dyn_menu_h {
-                    let relative_y = my - top_menu_y - 5.0;
-                    if relative_y >= 0.0 {
-                        let idx = (relative_y / 50.0).floor() as i32;
-                        if idx == 0 {
-                            return 31; // "Abrir archivo..."
-                        } else if idx == 1 {
-                            return 32; // "Open recent files"
-                        } else if idx == 2 {
-                            return 33; // "Exit"
-                        } else if idx == 3 {
-                            return 34;
+                    if mx >= top_menu_x && mx <= top_menu_x + dyn_menu_w && my >= top_menu_y && my <= top_menu_y + dyn_menu_h {
+                        let relative_y = my - top_menu_y - 5.0;
+                        if relative_y >= 0.0 {
+                            let idx = (relative_y / 50.0).floor() as i32;
+                            if idx == 0 {
+                                return 31; // "Abrir archivo..."
+                            } else if idx == 1 {
+                                return 32; // "Open recent files"
+                            } else if idx == 2 {
+                                return 33; // "Exit"
+                            } else if idx == 3 {
+                                return 34;
+                            }
                         }
                     }
                 }
             }
-        }
 
-        if mx >= top_menu_btn_x && mx <= top_menu_btn_x + top_menu_btn_w && my >= top_menu_btn_y && my <= top_menu_btn_y + top_menu_btn_h {
-            return 30; // Top Menu toggle button
+            if mx >= top_menu_btn_x && mx <= top_menu_btn_x + top_menu_btn_w && my >= top_menu_btn_y && my <= top_menu_btn_y + top_menu_btn_h {
+                return 30; // Top Menu toggle button
+            }
         }
 
         if !has_pdf {
@@ -1638,6 +1726,9 @@ impl App {
         if show_overlays {
             self.draw_ui_overlays_to_scene(&mut scene, width as f64, height as f64, hover_state);
         }
+        
+        // 4.5 Draw Scrollbar
+        self.draw_scrollbar_to_scene(&mut scene, width as f64, height as f64);
 
         // 5. Send pre-fetch requests
         self.queue_page_requests(width, height);
@@ -1798,6 +1889,9 @@ impl ApplicationHandler for App {
             WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
             WindowEvent::CursorMoved { position, .. } => {
                 let new_mouse_pos = (position.x as f32, position.y as f32);
+                if self.is_dragging_scrollbar {
+                    self.update_scroll_from_mouse_y(new_mouse_pos.1);
+                }
                 let old_state = self.get_hover_state(self.mouse_pos.0, self.mouse_pos.1);
                 let new_state = self.get_hover_state(new_mouse_pos.0, new_mouse_pos.1);
                 self.mouse_pos = new_mouse_pos;
@@ -1815,6 +1909,12 @@ impl ApplicationHandler for App {
             WindowEvent::MouseInput { state: winit::event::ElementState::Pressed, button: winit::event::MouseButton::Left, .. } => {
                 let hover = self.get_hover_state(self.mouse_pos.0, self.mouse_pos.1);
                 
+                if hover == 60 {
+                    self.is_dragging_scrollbar = true;
+                    self.update_scroll_from_mouse_y(self.mouse_pos.1);
+                    return;
+                }
+
                 if self.view_lecturas {
                     if hover == 50 {
                         self.view_lecturas = false;
@@ -1995,6 +2095,12 @@ impl ApplicationHandler for App {
                         self.left_menu_open = false;
                         if let Some(window) = self.window.as_ref() { window.request_redraw(); }
                     }
+                }
+            }
+            WindowEvent::MouseInput { state: winit::event::ElementState::Released, button: winit::event::MouseButton::Left, .. } => {
+                if self.is_dragging_scrollbar {
+                    self.is_dragging_scrollbar = false;
+                    if let Some(window) = self.window.as_ref() { window.request_redraw(); }
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -2457,6 +2563,7 @@ impl Gui {
             pdf_title: self.pdf_title,
             pdf_author: self.pdf_author,
             view_lecturas: false,
+            is_dragging_scrollbar: false,
         };
         event_loop.run_app(&mut app)?;
         Ok(())
@@ -2472,6 +2579,9 @@ fn run_worker_thread(
     tx_response: std::sync::mpsc::Sender<WorkerMessage>,
     proxy: winit::event_loop::EventLoopProxy<()>,
 ) {
+    if pdf_path.is_empty() {
+        return;
+    }
     let mut parser = match crate::parser::Parser::new(&pdf_path) {
         Ok(p) => p,
         Err(e) => {
