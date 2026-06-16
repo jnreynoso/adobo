@@ -19,6 +19,8 @@ winit = "0.30.13"
 rfd = "0.17.2"
 redb = "4.1.0"
 serde_json = "1.0.150"
+serde = { version = "1.0", features = ["derive"] }
+dirs = "6.0.0"
 
 [profile.release]
 opt-level = 3

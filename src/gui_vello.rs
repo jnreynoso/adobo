@@ -91,6 +91,9 @@ pub struct App {
     zoom_initialized: bool,
     default_font: Arc<FontVec>,
     logo_image: Option<vello::peniko::ImageData>,
+    logo_rgba: Option<Vec<u8>>,
+    logo_width: u32,
+    logo_height: u32,
     window_icon: Option<winit::window::Icon>,
     layout_mode: LayoutMode,
     left_menu_open: bool,
@@ -98,9 +101,13 @@ pub struct App {
     recent_menu_open: bool,
     page_input_active: bool,
     page_input_text: String,
+    lecturas_page_idx: usize,
+    lecturas_search_query: String,
+    lecturas_search_active: bool,
     surface_size: (u32, u32),
     last_draw_time: std::time::Instant,
-    is_loading_next: bool,
+    loading_timeout: Option<std::time::Instant>,
+    loading_lectura_idx: Option<usize>,
     kill_pid: Option<u32>,
     pdf_title: String,
     pdf_author: String,
@@ -397,7 +404,7 @@ impl App {
 
     fn draw_welcome_screen_to_scene(&self, scene: &mut Scene, width: f64, height: f64) {
         let font = &self.default_font;
-        let bg_color = vello::peniko::Color::from_rgb8(24, 24, 24);
+        let bg_color = vello::peniko::Color::from_rgb8(15, 18, 25);
         let bg_rect = kurbo::Rect::new(0.0, 0.0, width, height);
         scene.fill(
             vello::peniko::Fill::NonZero,
@@ -407,18 +414,8 @@ impl App {
             &bg_rect,
         );
 
-        if self.is_loading_next {
-            let title = "Cargando documento...";
-            let title_size = 48.0;
-            let tw = self.measure_text_width(title, title_size as f32, font) as f64;
-            let tx = (width - tw) / 2.0;
-            let ty = height / 2.0;
-            self.draw_text_to_scene(scene, title, tx, ty, title_size, font, vello::peniko::Color::WHITE);
-            return;
-        }
-
         let title = "Bienvenido a Adobo";
-        let title_size = 56.0;
+        let title_size = 72.0;
         let tw = self.measure_text_width(title, title_size as f32, font) as f64;
         let tx = (width - tw) / 2.0;
 
@@ -426,21 +423,21 @@ impl App {
         let paragraph2 = "Se enfoca en brindarle al usuario una lectura placentera y minimalista,";
         let paragraph3 = "eliminando las funciones pesadas que los lectores tradicionales no necesitan.";
 
-        let sub_size = 22.0;
+        let sub_size = 32.0;
         let text_color = vello::peniko::Color::from_rgb8(210, 210, 210);
 
         let w1 = self.measure_text_width(paragraph1, sub_size as f32, font) as f64;
         let w2 = self.measure_text_width(paragraph2, sub_size as f32, font) as f64;
         let w3 = self.measure_text_width(paragraph3, sub_size as f32, font) as f64;
 
-        let total_content_height = 160.0 + 40.0 + 60.0 + 80.0 + 80.0;
+        let total_content_height = 160.0 + 80.0 + 80.0 + 80.0 + 80.0;
         let start_y = ((height - total_content_height) / 2.0).max(50.0);
 
         let ly = start_y;
-        let ty = start_y + 160.0 + 40.0;
-        let ty_p1 = ty + 80.0;
-        let ty_p2 = ty_p1 + 40.0;
-        let ty_p3 = ty_p2 + 40.0;
+        let ty = start_y + 160.0 + 80.0;
+        let ty_p1 = ty + 100.0;
+        let ty_p2 = ty_p1 + 50.0;
+        let ty_p3 = ty_p2 + 50.0;
 
         self.draw_text_to_scene(scene, title, tx, ty, title_size, font, vello::peniko::Color::WHITE);
 
@@ -449,7 +446,14 @@ impl App {
         self.draw_text_to_scene(scene, paragraph3, (width - w3) / 2.0, ty_p3, sub_size, font, text_color);
 
         // Draw logo
-        if let Some(ref logo) = self.logo_image {
+        if let Some(ref rgba) = self.logo_rgba {
+            let logo = vello::peniko::ImageData {
+                data: vello::peniko::Blob::new(std::sync::Arc::new(rgba.clone())),
+                format: vello::peniko::ImageFormat::Rgba8,
+                alpha_type: vello::peniko::ImageAlphaType::Alpha,
+                width: self.logo_width,
+                height: self.logo_height,
+            };
             let lw = 160.0;
             let lh = 160.0;
             let lx = (width - lw) / 2.0;
@@ -458,8 +462,8 @@ impl App {
             let sy = lh / logo.height as f64;
             let transform = kurbo::Affine::translate((lx, ly)) * kurbo::Affine::scale_non_uniform(sx, sy);
             
-            let image_brush = vello::peniko::Brush::Image(vello::peniko::ImageBrush::new(logo.clone()));
-            let fill_rect = kurbo::Rect::new(0.0, 0.0, logo.width as f64, logo.height as f64);
+            let image_brush = vello::peniko::Brush::Image(vello::peniko::ImageBrush::new(logo));
+            let fill_rect = kurbo::Rect::new(0.0, 0.0, self.logo_width as f64, self.logo_height as f64);
             scene.fill(
                 vello::peniko::Fill::NonZero,
                 transform,
@@ -472,7 +476,7 @@ impl App {
 
     fn draw_lecturas_to_scene(&self, scene: &mut Scene, width: f64, height: f64, hover_state: u8) {
         let font = &self.default_font;
-        let bg_color = vello::peniko::Color::from_rgb8(20, 20, 20);
+        let bg_color = vello::peniko::Color::from_rgb8(15, 18, 25);
         let bg_rect = kurbo::Rect::new(0.0, 0.0, width, height);
         scene.fill(
             vello::peniko::Fill::NonZero,
@@ -482,79 +486,175 @@ impl App {
             &bg_rect,
         );
 
-        let title = "Lecturas Guardadas";
-        let title_size = 48.0;
+        let title = "Lecturas Actuales";
+        let title_size = 72.0;
         let tw = self.measure_text_width(title, title_size as f32, font) as f64;
-        self.draw_text_to_scene(scene, title, (width - tw) / 2.0, 80.0, title_size, font, vello::peniko::Color::WHITE);
+        self.draw_text_to_scene(scene, title, (width - tw) / 2.0, 100.0, title_size, font, vello::peniko::Color::WHITE);
 
         // Volver button
-        let volver_rect = kurbo::RoundedRect::new(30.0, 30.0, 150.0, 80.0, 8.0);
-        let volver_bg = if hover_state == 50 { vello::peniko::Color::from_rgb8(80, 80, 80) } else { vello::peniko::Color::from_rgb8(50, 50, 50) };
+        let stroke_style = kurbo::Stroke::new(2.0);
+        let border_color = vello::peniko::Color::from_rgb8(100, 100, 100);
+        let volver_rect = kurbo::RoundedRect::new(30.0, 30.0, 190.0, 94.0, 8.0);
+        let volver_bg = vello::peniko::Color::from_rgb8(
+            if hover_state == 50 { 70 } else { 25 },
+            if hover_state == 50 { 70 } else { 25 },
+            if hover_state == 50 { 70 } else { 25 },
+        );
         scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, volver_bg, None, &volver_rect);
-        self.draw_text_to_scene(scene, "< Volver", 50.0, 62.0, 24.0, font, vello::peniko::Color::WHITE);
+        scene.stroke(&stroke_style, kurbo::Affine::IDENTITY, border_color, None, &volver_rect);
 
-        let readings = crate::db::get_all_readings();
+        self.draw_text_to_scene(scene, "Volver", 30.0 + 24.0, 30.0 + 44.0, 36.0, font, vello::peniko::Color::WHITE);
+
+        let query = self.lecturas_search_query.to_lowercase();
+        let readings: Vec<_> = crate::db::get_all_readings().into_iter().filter(|(p, info)| {
+            if query.is_empty() { return true; }
+            let name = std::path::Path::new(p).file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
+            let author = info.author.to_lowercase();
+            name.contains(&query) || author.contains(&query)
+        }).collect();
+
+        // Search bar
+        let search_w = 600.0;
+        let search_h = 60.0;
+        let search_x = (width - search_w) / 2.0;
+        let search_y = 160.0;
+        let search_rect = kurbo::RoundedRect::new(search_x, search_y, search_x + search_w, search_y + search_h, 20.0);
+        let search_bg = if self.lecturas_search_active { vello::peniko::Color::from_rgb8(50, 55, 70) } else { vello::peniko::Color::from_rgb8(30, 34, 45) };
+        scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, search_bg, None, &search_rect);
+        scene.stroke(&stroke_style, kurbo::Affine::IDENTITY, border_color, None, &search_rect);
+        
+        let display_text = if self.lecturas_search_query.is_empty() && !self.lecturas_search_active {
+            "Buscar por título o autor..."
+        } else {
+            &self.lecturas_search_query
+        };
+        let t_color = if self.lecturas_search_query.is_empty() && !self.lecturas_search_active { vello::peniko::Color::from_rgb8(150, 150, 150) } else { vello::peniko::Color::WHITE };
+        
+        // Add a blinking cursor if active
+        let mut final_text = display_text.to_string();
+        if self.lecturas_search_active && (std::time::Instant::now().elapsed().as_millis() % 1000) < 500 {
+            final_text.push('|');
+        }
+        self.draw_text_to_scene(scene, &final_text, search_x + 30.0, search_y + 40.0, 28.0, font, t_color);
+
         if readings.is_empty() {
-            let msg = "No hay lecturas guardadas.";
-            let mw = self.measure_text_width(msg, 24.0, font) as f64;
-            self.draw_text_to_scene(scene, msg, (width - mw) / 2.0, height / 2.0, 24.0, font, vello::peniko::Color::from_rgb8(150, 150, 150));
+            let msg = if query.is_empty() { "No hay lecturas en progreso." } else { "No se encontraron lecturas." };
+            let mw = self.measure_text_width(msg, 32.0, font) as f64;
+            self.draw_text_to_scene(scene, msg, (width - mw) / 2.0, height / 2.0, 32.0, font, vello::peniko::Color::from_rgb8(150, 155, 170));
             return;
         }
 
-        let start_y = 120.0;
-        let item_h = 100.0;
+        let start_y = 260.0;
+        let item_h = 140.0;
         let gap = 20.0;
-        let list_w = (width - 100.0).max(600.0).min(1000.0);
+        let list_w = (width - 100.0).max(800.0);
         let list_x = (width - list_w) / 2.0;
+        
+        let items_per_page = ((height - 400.0) / (item_h + gap)).floor().max(1.0) as usize;
+        let total_pages = (readings.len() + items_per_page - 1) / items_per_page;
+        let page_idx = self.lecturas_page_idx.min(total_pages.saturating_sub(1));
+        
+        let start_idx = page_idx * items_per_page;
+        let end_idx = (start_idx + items_per_page).min(readings.len());
+        let current_page_items = &readings[start_idx..end_idx];
 
-        for (idx, (_, progress)) in readings.iter().enumerate() {
+        for (idx, (path, progress)) in current_page_items.iter().enumerate() {
             let item_y = start_y + (idx as f64 * (item_h + gap));
             let item_rect = kurbo::RoundedRect::new(list_x, item_y, list_x + list_w, item_y + item_h, 12.0);
+            
+            // Item Background
             scene.fill(
                 vello::peniko::Fill::NonZero,
                 kurbo::Affine::IDENTITY,
-                vello::peniko::Color::from_rgb8(35, 35, 35),
+                vello::peniko::Color::from_rgb8(30, 34, 45),
+                None,
+                &item_rect,
+            );
+            // Item Border
+            scene.stroke(
+                &kurbo::Stroke::new(1.0),
+                kurbo::Affine::IDENTITY,
+                vello::peniko::Color::from_rgb8(50, 55, 70),
                 None,
                 &item_rect,
             );
 
-            // Title and Author
-            self.draw_text_to_scene(scene, &progress.title, list_x + 30.0, item_y + 40.0, 28.0, font, vello::peniko::Color::WHITE);
+            // Title (from filename) and Author
+            let display_name = std::path::Path::new(path).file_stem().unwrap_or_default().to_string_lossy();
+            self.draw_text_to_scene(scene, &display_name, list_x + 30.0, item_y + 55.0, 36.0, font, vello::peniko::Color::WHITE);
             let author_txt = format!("Por: {}", progress.author);
-            self.draw_text_to_scene(scene, &author_txt, list_x + 30.0, item_y + 75.0, 20.0, font, vello::peniko::Color::from_rgb8(180, 180, 180));
+            self.draw_text_to_scene(scene, &author_txt, list_x + 30.0, item_y + 100.0, 24.0, font, vello::peniko::Color::from_rgb8(170, 175, 190));
 
-            // Progress bar and text
+            // Progress text
             let prog_pct = progress.percentage();
-            let prog_txt = format!("Pag {} de {} ({:.1}%)", progress.current_page + 1, progress.total_pages, prog_pct);
-            let prog_txt_w = self.measure_text_width(&prog_txt, 20.0, font) as f64;
-            self.draw_text_to_scene(scene, &prog_txt, list_x + list_w - 200.0 - prog_txt_w - 30.0, item_y + 45.0, 20.0, font, vello::peniko::Color::from_rgb8(200, 200, 200));
+            let prog_txt = format!("Pág {} de {} ({:.1}%)", progress.current_page + 1, progress.total_pages, prog_pct);
+            let prog_txt_w = self.measure_text_width(&prog_txt, 24.0, font) as f64;
+            self.draw_text_to_scene(scene, &prog_txt, list_x + list_w - 220.0 - prog_txt_w - 30.0, item_y + 65.0, 24.0, font, vello::peniko::Color::from_rgb8(180, 185, 200));
 
-            let bar_w = 250.0;
-            let bar_x = list_x + list_w - 200.0 - bar_w - 30.0;
-            let bar_y = item_y + 60.0;
-            let bar_bg = kurbo::RoundedRect::new(bar_x, bar_y, bar_x + bar_w, bar_y + 10.0, 5.0);
-            scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgb8(60, 60, 60), None, &bar_bg);
+            // Progress bar
+            let bar_w = 300.0;
+            let bar_x = list_x + list_w - 220.0 - bar_w - 30.0;
+            let bar_y = item_y + 85.0;
+            let bar_bg = kurbo::RoundedRect::new(bar_x, bar_y, bar_x + bar_w, bar_y + 8.0, 4.0);
+            scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgb8(45, 50, 65), None, &bar_bg);
             
             let fill_w = bar_w * (prog_pct as f64 / 100.0);
             if fill_w > 0.0 {
-                let bar_fg = kurbo::RoundedRect::new(bar_x, bar_y, bar_x + fill_w, bar_y + 10.0, 5.0);
-                scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgb8(100, 200, 100), None, &bar_fg);
+                let bar_fg = kurbo::RoundedRect::new(bar_x, bar_y, bar_x + fill_w, bar_y + 8.0, 4.0);
+                scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgb8(80, 200, 150), None, &bar_fg);
             }
 
             // Leer button
-            let btn_w = 140.0;
-            let btn_h = 40.0;
+            let btn_w = 180.0;
+            let btn_h = 60.0;
             let btn_x = list_x + list_w - btn_w - 30.0;
-            let btn_y = item_y + 30.0;
+            let btn_y = item_y + 40.0;
             let is_hover = hover_state == (100 + idx) as u8;
-            let btn_bg = if is_hover { vello::peniko::Color::from_rgb8(80, 150, 80) } else { vello::peniko::Color::from_rgb8(50, 120, 50) };
+            let btn_bg = if is_hover { vello::peniko::Color::from_rgb8(80, 120, 220) } else { vello::peniko::Color::from_rgb8(50, 90, 190) };
             
             let btn_rect = kurbo::RoundedRect::new(btn_x, btn_y, btn_x + btn_w, btn_y + btn_h, 8.0);
             scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, btn_bg, None, &btn_rect);
             
-            let leer_txt = "Leer";
-            let leer_tw = self.measure_text_width(leer_txt, 20.0, font) as f64;
-            self.draw_text_to_scene(scene, leer_txt, btn_x + (btn_w - leer_tw) / 2.0, btn_y + 26.0, 20.0, font, vello::peniko::Color::WHITE);
+            if self.loading_lectura_idx == Some(start_idx + idx) && self.loading_timeout.is_some() {
+                let ms = std::time::Instant::now().elapsed().as_millis();
+                let dots = match (ms / 300) % 4 {
+                    0 => "",
+                    1 => ".",
+                    2 => "..",
+                    _ => "...",
+                };
+                let txt = format!("Cargando{}", dots);
+                let tw = self.measure_text_width(&txt, 20.0, font) as f64;
+                self.draw_text_to_scene(scene, &txt, btn_x + (btn_w - tw) / 2.0, btn_y + 36.0, 20.0, font, vello::peniko::Color::WHITE);
+            } else {
+                let leer_txt = "Leer";
+                let leer_tw = self.measure_text_width(leer_txt, 28.0, font) as f64;
+                self.draw_text_to_scene(scene, leer_txt, btn_x + (btn_w - leer_tw) / 2.0, btn_y + 40.0, 28.0, font, vello::peniko::Color::WHITE);
+            }
+        }
+
+        if total_pages > 1 {
+            let pag_y = height - 80.0;
+            
+            // Prev button
+            if page_idx > 0 {
+                let prev_rect = kurbo::RoundedRect::new(width / 2.0 - 150.0, pag_y, width / 2.0 - 50.0, pag_y + 50.0, 8.0);
+                let prev_bg = if hover_state == 51 { vello::peniko::Color::from_rgb8(80, 120, 220) } else { vello::peniko::Color::from_rgb8(50, 90, 190) };
+                scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, prev_bg, None, &prev_rect);
+                self.draw_text_to_scene(scene, "Anterior", width / 2.0 - 130.0, pag_y + 34.0, 24.0, font, vello::peniko::Color::WHITE);
+            }
+            
+            let pag_text = format!("Página {} de {}", page_idx + 1, total_pages);
+            let pag_tw = self.measure_text_width(&pag_text, 24.0, font) as f64;
+            self.draw_text_to_scene(scene, &pag_text, (width - pag_tw) / 2.0, pag_y + 34.0, 24.0, font, vello::peniko::Color::WHITE);
+            
+            // Next button
+            if page_idx < total_pages - 1 {
+                let next_rect = kurbo::RoundedRect::new(width / 2.0 + 50.0, pag_y, width / 2.0 + 150.0, pag_y + 50.0, 8.0);
+                let next_bg = if hover_state == 52 { vello::peniko::Color::from_rgb8(80, 120, 220) } else { vello::peniko::Color::from_rgb8(50, 90, 190) };
+                scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, next_bg, None, &next_rect);
+                self.draw_text_to_scene(scene, "Siguiente", width / 2.0 + 65.0, pag_y + 34.0, 24.0, font, vello::peniko::Color::WHITE);
+            }
         }
     }
 
@@ -570,8 +670,8 @@ impl App {
         // TOP-LEFT MENU (Abrir Archivo)
         let top_menu_btn_x = 30.0;
         let top_menu_btn_y = 30.0;
-        let top_menu_btn_w = 120.0;
-        let top_menu_btn_h = 50.0;
+        let top_menu_btn_w = 160.0;
+        let top_menu_btn_h = 64.0;
 
         let top_menu_x = 30.0;
         let top_menu_y = top_menu_btn_y + top_menu_btn_h + 5.0;
@@ -586,14 +686,14 @@ impl App {
         scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, top_btn_bg_color, None, &top_btn_rounded);
         scene.stroke(&stroke_style, kurbo::Affine::IDENTITY, border_color, None, &top_btn_rounded);
 
-        self.draw_text_to_scene(scene, "Menu", top_menu_btn_x + 20.0, top_menu_btn_y + 35.0, 28.0, font, vello::peniko::Color::WHITE);
+        self.draw_text_to_scene(scene, "Menu", top_menu_btn_x + 24.0, top_menu_btn_y + 44.0, 36.0, font, vello::peniko::Color::WHITE);
 
         if self.top_menu_open {
             if self.recent_menu_open {
                 let recents = load_recent_files();
                 let item_count = recents.len() + 1;
-                let dyn_menu_h = (item_count as f64 * 40.0) + 20.0;
-                let dyn_menu_w = 400.0;
+                let dyn_menu_h = (item_count as f64 * 50.0) + 20.0;
+                let dyn_menu_w = 500.0;
                 
                 let top_menu_rounded = kurbo::RoundedRect::new(top_menu_x, top_menu_y, top_menu_x + dyn_menu_w, top_menu_y + dyn_menu_h, 8.0);
                 scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, bg_color, None, &top_menu_rounded);
@@ -601,56 +701,56 @@ impl App {
                 
                 let back_y = top_menu_y + 10.0;
                 if hover_state == 35 {
-                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, back_y, top_menu_x + dyn_menu_w - 1.0, back_y + 35.0);
+                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, back_y, top_menu_x + dyn_menu_w - 1.0, back_y + 45.0);
                     scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
                 }
-                self.draw_text_to_scene(scene, "< Volver", top_menu_x + 20.0, back_y + 25.0, 20.0, font, vello::peniko::Color::WHITE);
+                self.draw_text_to_scene(scene, "< Volver", top_menu_x + 20.0, back_y + 32.0, 24.0, font, vello::peniko::Color::WHITE);
                 
                 for (idx, file) in recents.iter().enumerate() {
-                    let item_y = back_y + 40.0 + (idx as f64 * 40.0);
+                    let item_y = back_y + 50.0 + (idx as f64 * 50.0);
                     let h_state = 36 + idx as u8;
                     if hover_state == h_state {
-                        let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item_y, top_menu_x + dyn_menu_w - 1.0, item_y + 35.0);
+                        let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item_y, top_menu_x + dyn_menu_w - 1.0, item_y + 45.0);
                         scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
                     }
                     let display_name = std::path::Path::new(file).file_name().and_then(|n| n.to_str()).unwrap_or(file);
-                    self.draw_text_to_scene(scene, display_name, top_menu_x + 20.0, item_y + 25.0, 18.0, font, vello::peniko::Color::WHITE);
+                    self.draw_text_to_scene(scene, display_name, top_menu_x + 20.0, item_y + 32.0, 24.0, font, vello::peniko::Color::WHITE);
                 }
             } else {
-                let dyn_menu_w = 220.0;
-                let dyn_menu_h = 170.0;
+                let dyn_menu_w = 320.0;
+                let dyn_menu_h = 220.0;
                 
                 let top_menu_rounded = kurbo::RoundedRect::new(top_menu_x, top_menu_y, top_menu_x + dyn_menu_w, top_menu_y + dyn_menu_h, 8.0);
                 scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, bg_color, None, &top_menu_rounded);
                 scene.stroke(&stroke_style, kurbo::Affine::IDENTITY, border_color, None, &top_menu_rounded);
                 
-                let item1_y = top_menu_y + 5.0;
+                let item1_y = top_menu_y + 10.0;
                 if hover_state == 31 {
-                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item1_y, top_menu_x + dyn_menu_w - 1.0, item1_y + 38.0);
+                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item1_y, top_menu_x + dyn_menu_w - 1.0, item1_y + 45.0);
                     scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
                 }
-                self.draw_text_to_scene(scene, "Abrir archivo...", top_menu_x + 20.0, item1_y + 28.0, 22.0, font, vello::peniko::Color::WHITE);
+                self.draw_text_to_scene(scene, "Abrir archivo...", top_menu_x + 20.0, item1_y + 32.0, 28.0, font, vello::peniko::Color::WHITE);
                 
-                let item2_y = item1_y + 40.0;
+                let item2_y = item1_y + 50.0;
                 if hover_state == 32 {
-                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item2_y, top_menu_x + dyn_menu_w - 1.0, item2_y + 38.0);
+                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item2_y, top_menu_x + dyn_menu_w - 1.0, item2_y + 45.0);
                     scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
                 }
-                self.draw_text_to_scene(scene, "Open recent files", top_menu_x + 20.0, item2_y + 28.0, 22.0, font, vello::peniko::Color::WHITE);
+                self.draw_text_to_scene(scene, "Archivos recientes", top_menu_x + 20.0, item2_y + 32.0, 28.0, font, vello::peniko::Color::WHITE);
 
-                let item3_y = item2_y + 40.0;
+                let item3_y = item2_y + 50.0;
                 if hover_state == 33 {
-                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item3_y, top_menu_x + dyn_menu_w - 1.0, item3_y + 38.0);
+                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item3_y, top_menu_x + dyn_menu_w - 1.0, item3_y + 45.0);
                     scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
                 }
-                self.draw_text_to_scene(scene, "Lecturas", top_menu_x + 20.0, item3_y + 28.0, 22.0, font, vello::peniko::Color::WHITE);
+                self.draw_text_to_scene(scene, "Lecturas", top_menu_x + 20.0, item3_y + 32.0, 28.0, font, vello::peniko::Color::WHITE);
 
-                let item4_y = item3_y + 40.0;
+                let item4_y = item3_y + 50.0;
                 if hover_state == 34 {
-                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item4_y, top_menu_x + dyn_menu_w - 1.0, item4_y + 38.0);
+                    let h_rect = kurbo::Rect::new(top_menu_x + 1.0, item4_y, top_menu_x + dyn_menu_w - 1.0, item4_y + 45.0);
                     scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgba8(100, 100, 100, 200), None, &h_rect);
                 }
-                self.draw_text_to_scene(scene, "Exit", top_menu_x + 20.0, item4_y + 28.0, 22.0, font, vello::peniko::Color::WHITE);
+                self.draw_text_to_scene(scene, "Salir", top_menu_x + 20.0, item4_y + 32.0, 28.0, font, vello::peniko::Color::WHITE);
             }
         }
 
@@ -713,7 +813,7 @@ impl App {
         draw_btn(scene, overlay_x + 306.0, "+", hover_state == 3);
         draw_btn(scene, overlay_x + 408.0, "R", hover_state == 4);
 
-        let current_fit_zoom = self.calculate_fit_zoom(width as u32, height as u32);
+        let current_fit_zoom = self.calculate_fit_height_zoom(height as u32);
         let zoom_pct = format!("{:.0}%", (self.zoom / current_fit_zoom) * 100.0);
         let lw = self.measure_text_width(&zoom_pct, 32.0, font) as f64;
         let lx = overlay_x + 96.0 + (210.0 - lw) / 2.0;
@@ -864,8 +964,8 @@ impl App {
         let menu_btn_w = 84.0;
         let menu_btn_h = 100.0;
 
-        let menu_w = 364.0;
-        let menu_h = 448.0;
+        let menu_w = 480.0;
+        let menu_h = 560.0;
         let menu_x = 30.0;
         let menu_y = height - 100.0 - 30.0 - menu_h - 10.0;
 
@@ -952,9 +1052,9 @@ impl App {
                     self.draw_text_to_scene(
                         scene,
                         text,
-                        menu_x + 28.0,
-                        iy + 38.0,
-                        28.0,
+                        menu_x + 20.0,
+                        iy + 44.0,
+                        32.0,
                         font,
                         vello::peniko::Color::WHITE,
                     );
@@ -962,21 +1062,23 @@ impl App {
             }
         }
 
-        if self.is_loading_next {
-            let bg_rect = kurbo::Rect::new(0.0, 0.0, width, height);
-            scene.fill(
-                vello::peniko::Fill::NonZero,
-                kurbo::Affine::IDENTITY,
-                vello::peniko::Color::from_rgba8(0, 0, 0, 180),
-                None,
-                &bg_rect,
-            );
-            let title = "Cargando documento...";
-            let title_size = 48.0;
-            let tw = self.measure_text_width(title, title_size as f32, font) as f64;
-            let tx = (width - tw) / 2.0;
-            let ty = height / 2.0;
-            self.draw_text_to_scene(scene, title, tx, ty, title_size, font, vello::peniko::Color::WHITE);
+        if let Some(t) = self.loading_timeout {
+            if t.elapsed().as_secs_f32() <= 1.5 {
+                let bg_rect = kurbo::Rect::new(0.0, 0.0, width, height);
+                scene.fill(
+                    vello::peniko::Fill::NonZero,
+                    kurbo::Affine::IDENTITY,
+                    vello::peniko::Color::from_rgba8(0, 0, 0, 180),
+                    None,
+                    &bg_rect,
+                );
+                let title = "Cargando documento...";
+                let title_size = 48.0;
+                let tw = self.measure_text_width(title, title_size as f32, font) as f64;
+                let tx = (width - tw) / 2.0;
+                let ty = height / 2.0;
+                self.draw_text_to_scene(scene, title, tx, ty, title_size, font, vello::peniko::Color::WHITE);
+            }
         }
     }
 
@@ -1001,7 +1103,7 @@ impl App {
         for page_idx in first_visible..page_count {
             let page = &self.pages[page_idx];
             let page_y = (self.scroll_y + page.top_y * self.zoom).round() as i32;
-            if page_y >= height as i32 {
+            if page_y >= height as i32 && page_idx > first_visible {
                 next_non_visible = page_idx;
                 break;
             }
@@ -1136,18 +1238,40 @@ impl App {
         let height = self.window_size.height as f32;
 
         if self.view_lecturas {
-            if mx >= 30.0 && mx <= 150.0 && my >= 30.0 && my <= 80.0 {
+            if mx >= 30.0 && mx <= 190.0 && my >= 30.0 && my <= 94.0 {
                 return 50; // Volver button
             }
-            let start_y = 120.0;
-            let item_h = 100.0;
-            let list_h = height - start_y - 40.0;
+            
+            let search_w = 600.0;
+            let search_h = 60.0;
+            let search_x = (width - search_w) / 2.0;
+            let search_y = 160.0;
+            if mx >= search_x && mx <= search_x + search_w && my >= search_y && my <= search_y + search_h {
+                return 53; // Search bar
+            }
+            
+            let pag_y = height - 80.0;
+            if mx >= width / 2.0 - 150.0 && mx <= width / 2.0 - 50.0 && my >= pag_y && my <= pag_y + 50.0 {
+                return 51; // Prev button
+            }
+            if mx >= width / 2.0 + 50.0 && mx <= width / 2.0 + 150.0 && my >= pag_y && my <= pag_y + 50.0 {
+                return 52; // Next button
+            }
+
+            let start_y = 260.0;
+            let item_h = 140.0;
+            let gap = 20.0;
             let my_rel = my - start_y;
-            if my_rel >= 0.0 && my_rel <= list_h {
-                let idx = (my_rel / (item_h + 20.0)).floor() as i32;
-                let btn_y = start_y + (idx as f32 * (item_h + 20.0)) + 30.0;
-                let btn_x = width - 180.0;
-                if mx >= btn_x && mx <= btn_x + 140.0 && my >= btn_y && my <= btn_y + 40.0 {
+            if my_rel >= 0.0 {
+                let idx = (my_rel / (item_h + gap)).floor() as i32;
+                let btn_y = start_y + (idx as f32 * (item_h + gap)) + 40.0;
+                
+                let list_w = (width - 100.0).max(800.0);
+                let list_x = (width - list_w) / 2.0;
+                let btn_w = 180.0;
+                let btn_x = list_x + list_w - btn_w - 30.0;
+
+                if mx >= btn_x && mx <= btn_x + btn_w && my >= btn_y && my <= btn_y + 60.0 {
                     return 100 + idx as u8;
                 }
             }
@@ -1159,8 +1283,8 @@ impl App {
         // Top-left menu (Abrir Archivo)
         let top_menu_btn_x = 30.0;
         let top_menu_btn_y = 30.0;
-        let top_menu_btn_w = 120.0;
-        let top_menu_btn_h = 50.0;
+        let top_menu_btn_w = 160.0;
+        let top_menu_btn_h = 64.0;
 
         if self.top_menu_open {
             let top_menu_x = 30.0;
@@ -1169,13 +1293,13 @@ impl App {
             if self.recent_menu_open {
                 let recents = load_recent_files();
                 let item_count = recents.len() + 1;
-                let dyn_menu_h = (item_count as f32 * 40.0) + 20.0;
-                let dyn_menu_w = 400.0;
+                let dyn_menu_h = (item_count as f32 * 50.0) + 20.0;
+                let dyn_menu_w = 500.0;
 
                 if mx >= top_menu_x && mx <= top_menu_x + dyn_menu_w && my >= top_menu_y && my <= top_menu_y + dyn_menu_h {
                     let relative_y = my - top_menu_y - 10.0;
                     if relative_y >= 0.0 {
-                        let idx = (relative_y / 40.0).floor() as i32;
+                        let idx = (relative_y / 50.0).floor() as i32;
                         if idx == 0 {
                             return 35; // Back button
                         } else if idx > 0 && idx <= recents.len() as i32 {
@@ -1184,13 +1308,13 @@ impl App {
                     }
                 }
             } else {
-                let dyn_menu_w = 220.0;
-                let dyn_menu_h = 170.0;
+                let dyn_menu_w = 320.0;
+                let dyn_menu_h = 220.0;
 
                 if mx >= top_menu_x && mx <= top_menu_x + dyn_menu_w && my >= top_menu_y && my <= top_menu_y + dyn_menu_h {
                     let relative_y = my - top_menu_y - 5.0;
                     if relative_y >= 0.0 {
-                        let idx = (relative_y / 40.0).floor() as i32;
+                        let idx = (relative_y / 50.0).floor() as i32;
                         if idx == 0 {
                             return 31; // "Abrir archivo..."
                         } else if idx == 1 {
@@ -1220,8 +1344,8 @@ impl App {
         let menu_btn_h = 100.0;
 
         if self.left_menu_open {
-            let menu_w = 364.0;
-            let menu_h = 448.0;
+            let menu_w = 480.0;
+            let menu_h = 560.0;
             let menu_x = 30.0;
             let menu_y = height - 100.0 - 30.0 - menu_h - 10.0;
 
@@ -1362,6 +1486,42 @@ impl App {
         let page_count = self.pages.len();
         let is_loading = self.page_images.borrow().is_empty();
 
+        if self.view_lecturas {
+            self.draw_lecturas_to_scene(&mut scene, width as f64, height as f64, self.get_hover_state(self.mouse_pos.0, self.mouse_pos.1));
+            
+            let render_surface = self.render_surface.as_mut().unwrap();
+            let device = &self.render_cx.devices[render_surface.dev_id].device;
+            let queue = &self.render_cx.devices[render_surface.dev_id].queue;
+            let renderer = self.renderer.as_mut().unwrap();
+
+            renderer.render_to_texture(
+                device,
+                queue,
+                &scene,
+                &render_surface.target_view,
+                &vello::RenderParams {
+                    base_color: vello::peniko::Color::from_rgb8(18, 18, 18),
+                    width,
+                    height,
+                    antialiasing_method: vello::AaConfig::Area,
+                },
+            ).unwrap();
+            {
+                let mut encoder = device.create_command_encoder(&vello::wgpu::CommandEncoderDescriptor { label: Some("Blit") });
+                render_surface.blitter.copy(
+                    device,
+                    &mut encoder,
+                    &render_surface.target_view,
+                    &surface_texture.texture.create_view(&vello::wgpu::TextureViewDescriptor::default()),
+                );
+                queue.submit(std::iter::once(encoder.finish()));
+            }
+            let _ = device.poll(vello::wgpu::PollType::Poll);
+            surface_texture.present();
+            if let Some(w) = self.window.as_ref() { w.set_visible(true); }
+            return;
+        }
+
         // 2. Draw Splash Screen if loading
         if page_count > 0 && is_loading {
             self.draw_splash_screen_to_scene(&mut scene, width as f64, height as f64);
@@ -1397,7 +1557,7 @@ impl App {
             }
             let _ = device.poll(vello::wgpu::PollType::Poll);
             surface_texture.present();
-            if let Some(w) = self.window.as_ref() { w.set_visible(true); }
+            // Do NOT make window visible here yet to avoid flash. Wait until it's fully loaded.
             return;
         }
 
@@ -1434,7 +1594,10 @@ impl App {
             }
             let _ = device.poll(vello::wgpu::PollType::Poll);
             surface_texture.present();
-            if let Some(w) = self.window.as_ref() { w.set_visible(true); }
+            if let Some(w) = self.window.as_ref() { 
+                w.set_maximized(true);
+                w.set_visible(true); 
+            }
             return;
         }
 
@@ -1507,7 +1670,20 @@ impl App {
             queue.submit(std::iter::once(encoder.finish()));
         }
         surface_texture.present();
-        if let Some(w) = self.window.as_ref() { w.set_visible(true); }
+        if let Some(w) = self.window.as_ref() { 
+            w.set_maximized(true);
+            w.set_visible(true); 
+        }
+
+        // Keep requesting redraws if we are currently loading something to animate the spinners
+        if let Some(t) = self.loading_timeout {
+            if t.elapsed().as_secs_f32() <= 1.5 {
+                _window.request_redraw();
+            } else {
+                self.loading_timeout = None;
+                self.loading_lectura_idx = None;
+            }
+        }
     }
 }
 
@@ -1517,7 +1693,6 @@ impl ApplicationHandler for App {
             let window = match event_loop.create_window(
                 Window::default_attributes()
                     .with_title("Adobo Reader")
-                    .with_maximized(true)
                     .with_visible(false)
             ) {
                 Ok(w) => Arc::new(w),
@@ -1566,11 +1741,21 @@ impl ApplicationHandler for App {
             }
 
             if size.width > 0 && size.height > 0 {
-                self.zoom = self.calculate_fit_zoom(size.width, size.height);
+                let initial_height = if let Some(monitor) = window.current_monitor().or_else(|| window.primary_monitor()) {
+                    monitor.size().height.saturating_sub(60)
+                } else {
+                    size.height
+                };
+                self.zoom = self.calculate_fit_height_zoom(initial_height);
                 self.rendered_zoom = self.zoom;
                 self.clear_cache();
                 self.center_on_content(size.width, size.height);
                 self.zoom_initialized = true;
+                if !self.pdf_path.is_empty() {
+                    if let Some(prog) = crate::db::get_progress(&self.pdf_path) {
+                        self.jump_to_page(prog.current_page as usize);
+                    }
+                }
             }
             self.window = Some(window.clone());
             self.draw(&window);
@@ -1595,7 +1780,7 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(size) => {
                 self.window_size = size;
                 if !self.zoom_initialized && size.width > 0 && size.height > 0 {
-                    self.zoom = self.calculate_fit_zoom(size.width, size.height);
+                    self.zoom = self.calculate_fit_height_zoom(size.height);
                     self.rendered_zoom = self.zoom;
                     self.clear_cache();
                     self.center_on_content(size.width, size.height);
@@ -1619,6 +1804,11 @@ impl ApplicationHandler for App {
                 if old_state != new_state {
                     if let Some(window) = self.window.as_ref() {
                         window.request_redraw();
+                        if new_state > 0 {
+                            window.set_cursor(winit::window::CursorIcon::Pointer);
+                        } else {
+                            window.set_cursor(winit::window::CursorIcon::Default);
+                        }
                     }
                 }
             }
@@ -1628,22 +1818,56 @@ impl ApplicationHandler for App {
                 if self.view_lecturas {
                     if hover == 50 {
                         self.view_lecturas = false;
+                        self.lecturas_search_active = false;
                         if let Some(window) = self.window.as_ref() { window.request_redraw(); }
-                    } else if hover >= 100 {
-                        let idx = (hover - 100) as usize;
-                        let readings = crate::db::get_all_readings();
-                        if idx < readings.len() {
-                            let (path, _) = &readings[idx];
-                            self.view_lecturas = false;
-                            self.is_loading_next = true;
+                    } else if hover == 51 {
+                        self.lecturas_page_idx = self.lecturas_page_idx.saturating_sub(1);
+                        if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                    } else if hover == 52 {
+                        self.lecturas_page_idx += 1;
+                        if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                    } else if hover == 53 {
+                        self.lecturas_search_active = true;
+                        if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                    } else {
+                        if self.lecturas_search_active && hover != 53 {
+                            self.lecturas_search_active = false;
                             if let Some(window) = self.window.as_ref() { window.request_redraw(); }
-                            
-                            let pid = std::process::id();
-                            if let Ok(exe) = std::env::current_exe() {
-                                std::process::Command::new(exe)
-                                    .arg(path)
-                                    .arg(format!("--kill-pid={}", pid))
-                                    .spawn().ok();
+                        }
+                        if hover >= 100 {
+                            let idx = (hover - 100) as usize;
+                            let query = self.lecturas_search_query.to_lowercase();
+                            let readings: Vec<_> = crate::db::get_all_readings().into_iter().filter(|(p, info)| {
+                                if query.is_empty() { return true; }
+                                let name = std::path::Path::new(p).file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
+                                let author = info.author.to_lowercase();
+                                name.contains(&query) || author.contains(&query)
+                            }).collect();
+
+                            let item_h = 140.0;
+                            let gap = 20.0;
+                            let height = self.window_size.height as f32;
+                            let items_per_page = ((height - 400.0) / (item_h + gap)).floor().max(1.0) as usize;
+                            let start_idx = self.lecturas_page_idx * items_per_page;
+                            let abs_idx = start_idx + idx;
+
+                            if abs_idx < readings.len() {
+                                let (path, _) = &readings[abs_idx];
+                                self.lecturas_search_active = false;
+                                self.loading_timeout = Some(std::time::Instant::now());
+                                self.loading_lectura_idx = Some(abs_idx);
+                                if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                                
+                                if let Ok(exe) = std::env::current_exe() {
+                                    let mut cmd = std::process::Command::new(exe);
+                                    cmd.arg(path);
+                                    #[cfg(target_os = "windows")]
+                                    {
+                                        use std::os::windows::process::CommandExt;
+                                        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                                    }
+                                    cmd.spawn().ok();
+                                }
                             }
                         }
                     }
@@ -1664,15 +1888,18 @@ impl ApplicationHandler for App {
                 } else if hover == 31 {
                     self.top_menu_open = false;
                     if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
-                        self.is_loading_next = true;
                         if let Some(window) = self.window.as_ref() { window.request_redraw(); }
                         
-                        let pid = std::process::id();
                         if let Ok(exe) = std::env::current_exe() {
-                            std::process::Command::new(exe)
-                                .arg(path)
-                                .arg(format!("--kill-pid={}", pid))
-                                .spawn().ok();
+                            self.loading_timeout = Some(std::time::Instant::now());
+                            let mut cmd = std::process::Command::new(exe);
+                            cmd.arg(path);
+                            #[cfg(target_os = "windows")]
+                            {
+                                use std::os::windows::process::CommandExt;
+                                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                            }
+                            cmd.spawn().ok();
                         }
                     }
                 } else if hover == 32 {
@@ -1703,15 +1930,18 @@ impl ApplicationHandler for App {
                         let path = &recents[idx];
                         self.top_menu_open = false;
                         self.recent_menu_open = false;
-                        self.is_loading_next = true;
                         if let Some(window) = self.window.as_ref() { window.request_redraw(); }
                         
-                        let pid = std::process::id();
                         if let Ok(exe) = std::env::current_exe() {
-                            std::process::Command::new(exe)
-                                .arg(path)
-                                .arg(format!("--kill-pid={}", pid))
-                                .spawn().ok();
+                            self.loading_timeout = Some(std::time::Instant::now());
+                            let mut cmd = std::process::Command::new(exe);
+                            cmd.arg(path);
+                            #[cfg(target_os = "windows")]
+                            {
+                                use std::os::windows::process::CommandExt;
+                                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                            }
+                            cmd.spawn().ok();
                         }
                     }
                 } else if hover == 9 {
@@ -1737,7 +1967,7 @@ impl ApplicationHandler for App {
                     let new_zoom = match hover {
                         2 => (old_zoom / 1.1).clamp(0.1, 10.0),
                         3 => (old_zoom * 1.1).clamp(0.1, 10.0),
-                        4 => self.calculate_fit_zoom(self.window_size.width, self.window_size.height),
+                        4 => self.calculate_fit_height_zoom(self.window_size.height),
                         _ => old_zoom,
                     };
                     if (new_zoom - old_zoom).abs() > 0.0001 {
@@ -1854,6 +2084,35 @@ impl ApplicationHandler for App {
                             }
                             _ => {}
                         }
+                    } else if self.lecturas_search_active {
+                        match &event.logical_key {
+                            winit::keyboard::Key::Named(winit::keyboard::NamedKey::Backspace) => {
+                                self.lecturas_search_query.pop();
+                                self.lecturas_page_idx = 0;
+                                if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                                return;
+                            }
+                            winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter) | winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape) => {
+                                self.lecturas_search_active = false;
+                                if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                                return;
+                            }
+                            winit::keyboard::Key::Character(c_str) => {
+                                if c_str.len() == 1 {
+                                    self.lecturas_search_query.push_str(c_str);
+                                    self.lecturas_page_idx = 0;
+                                }
+                                if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                                return;
+                            }
+                            winit::keyboard::Key::Named(winit::keyboard::NamedKey::Space) => {
+                                self.lecturas_search_query.push(' ');
+                                self.lecturas_page_idx = 0;
+                                if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                                return;
+                            }
+                            _ => {}
+                        }
                     } else {
                         if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
                             match code {
@@ -1871,7 +2130,7 @@ impl ApplicationHandler for App {
                                 }
                                 winit::keyboard::KeyCode::Digit0 if self.modifiers.control_key() => {
                                     let old_zoom = self.zoom;
-                                    let new_zoom = self.calculate_fit_zoom(self.window_size.width, self.window_size.height);
+                                    let new_zoom = self.calculate_fit_height_zoom(self.window_size.height);
                                     let actual_factor = new_zoom / old_zoom;
                                     self.zoom = new_zoom;
                                     self.last_zoom_change_time = std::time::Instant::now();
@@ -1906,6 +2165,15 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
         }
+        
+        if let Some(t) = self.loading_timeout {
+            if t.elapsed().as_secs_f32() > 1.5 {
+                self.loading_timeout = None;
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+            }
+        }
 
         let mut got_any = false;
         while let Ok(msg) = self.rx_worker.try_recv() {
@@ -1931,6 +2199,10 @@ impl ApplicationHandler for App {
         }
         if got_any {
             if let Some(window) = self.window.as_ref() {
+                if !self.page_images.borrow().is_empty() {
+                    window.set_maximized(true);
+                    window.set_visible(true);
+                }
                 window.request_redraw();
             }
         }
@@ -2164,16 +2436,23 @@ impl Gui {
             zoom_initialized: false,
             default_font,
             logo_image,
-            window_icon: self.window_icon,
+            logo_rgba: self.logo_rgba.clone(),
+            logo_width: self.logo_width,
+            logo_height: self.logo_height,
+            window_icon: self.window_icon.clone(),
             layout_mode: LayoutMode::SinglePage,
             left_menu_open: false,
             top_menu_open: false,
             recent_menu_open: false,
             page_input_active: false,
             page_input_text: String::new(),
-            surface_size: (0, 0),
+            lecturas_page_idx: 0,
+            lecturas_search_query: String::new(),
+            lecturas_search_active: false,
+            surface_size: (1, 1),
             last_draw_time: std::time::Instant::now(),
-            is_loading_next: false,
+            loading_timeout: None,
+            loading_lectura_idx: None,
             kill_pid: self.kill_pid,
             pdf_title: self.pdf_title,
             pdf_author: self.pdf_author,

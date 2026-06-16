@@ -61,8 +61,20 @@ fn main() {
         page_count = parser.get_page_count().unwrap_or(0);
         println!("Page Count: {}", page_count);
         
-        pdf_title = parser.get_title().unwrap_or_else(|_| "Unknown".to_string());
-        pdf_author = parser.get_author().unwrap_or_else(|_| "Unknown".to_string());
+        pdf_title = parser.get_title().unwrap_or_else(|_| "".to_string());
+        if pdf_title.trim().is_empty() || pdf_title == "Unknown" {
+            if let Some(file_name) = std::path::Path::new(&pdf_path).file_stem() {
+                pdf_title = file_name.to_string_lossy().to_string();
+            } else {
+                pdf_title = "Documento Desconocido".to_string();
+            }
+        }
+        
+        pdf_author = parser.get_author().unwrap_or_else(|_| "".to_string());
+        if pdf_author.trim().is_empty() || pdf_author == "Unknown" {
+            pdf_author = "Desconocido".to_string();
+        }
+        
         println!("Title: {}", pdf_title);
         println!("Author: {}", pdf_author);
 
