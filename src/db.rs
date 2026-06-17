@@ -40,6 +40,17 @@ pub fn save_progress(file_path: &str, progress: &ReadingProgress) -> Result<(), 
     Ok(())
 }
 
+pub fn delete_reading(file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let db = Database::create(db_path())?;
+    let write_txn = db.begin_write()?;
+    {
+        let mut table = write_txn.open_table(READINGS_TABLE)?;
+        table.remove(file_path)?;
+    }
+    write_txn.commit()?;
+    Ok(())
+}
+
 pub fn get_progress(file_path: &str) -> Option<ReadingProgress> {
     let db = Database::create(db_path()).ok()?;
     let read_txn = db.begin_read().ok()?;

@@ -578,11 +578,29 @@ impl App {
             let item_y = start_y + (idx as f64 * (item_h + gap));
             let item_rect = kurbo::RoundedRect::new(list_x, item_y, list_x + list_w, item_y + item_h, 12.0);
             
+            // Check if file exists
+            let file_exists = std::path::Path::new(path).exists();
+            let card_bg = if file_exists {
+                vello::peniko::Color::from_rgb8(30, 34, 45)
+            } else {
+                vello::peniko::Color::from_rgb8(45, 30, 32)
+            };
+            let card_border = if file_exists {
+                vello::peniko::Color::from_rgb8(50, 55, 70)
+            } else {
+                vello::peniko::Color::from_rgb8(120, 45, 45)
+            };
+            let title_color = if file_exists {
+                vello::peniko::Color::WHITE
+            } else {
+                vello::peniko::Color::from_rgb8(240, 180, 180)
+            };
+
             // Item Background
             scene.fill(
                 vello::peniko::Fill::NonZero,
                 kurbo::Affine::IDENTITY,
-                vello::peniko::Color::from_rgb8(30, 34, 45),
+                card_bg,
                 None,
                 &item_rect,
             );
@@ -590,26 +608,42 @@ impl App {
             scene.stroke(
                 &kurbo::Stroke::new(1.0),
                 kurbo::Affine::IDENTITY,
-                vello::peniko::Color::from_rgb8(50, 55, 70),
+                card_border,
                 None,
                 &item_rect,
             );
 
-            // Title (from filename) and Author
+            // Title (from filename) and Author/Warning
             let display_name = std::path::Path::new(path).file_stem().unwrap_or_default().to_string_lossy();
-            self.draw_text_to_scene(scene, &display_name, list_x + 30.0, item_y + 55.0, 36.0, font, vello::peniko::Color::WHITE);
-            let author_txt = format!("Por: {}", progress.author);
-            self.draw_text_to_scene(scene, &author_txt, list_x + 30.0, item_y + 100.0, 24.0, font, vello::peniko::Color::from_rgb8(170, 175, 190));
+            self.draw_text_to_scene(scene, &display_name, list_x + 30.0, item_y + 55.0, 36.0, font, title_color);
+            
+            if file_exists {
+                let author_txt = format!("Por: {}", progress.author);
+                self.draw_text_to_scene(scene, &author_txt, list_x + 30.0, item_y + 100.0, 24.0, font, vello::peniko::Color::from_rgb8(170, 175, 190));
+            } else {
+                let warning_txt = "[El archivo ya no existe en la ruta]";
+                self.draw_text_to_scene(scene, warning_txt, list_x + 30.0, item_y + 100.0, 20.0, font, vello::peniko::Color::from_rgb8(240, 100, 100));
+            }
+
+            // Button coordinates
+            let remove_btn_w = 110.0;
+            let remove_btn_h = 60.0;
+            let remove_btn_x = list_x + list_w - remove_btn_w - 30.0;
+
+            let btn_w = 120.0;
+            let btn_h = 60.0;
+            let btn_x = remove_btn_x - btn_w - 15.0;
+            let btn_y = item_y + 40.0;
 
             // Progress text
             let prog_pct = progress.percentage();
             let prog_txt = format!("Pág {} de {} ({:.1}%)", progress.current_page + 1, progress.total_pages, prog_pct);
             let prog_txt_w = self.measure_text_width(&prog_txt, 24.0, font) as f64;
-            self.draw_text_to_scene(scene, &prog_txt, list_x + list_w - 220.0 - prog_txt_w - 30.0, item_y + 65.0, 24.0, font, vello::peniko::Color::from_rgb8(180, 185, 200));
+            self.draw_text_to_scene(scene, &prog_txt, btn_x - prog_txt_w - 30.0, item_y + 65.0, 24.0, font, vello::peniko::Color::from_rgb8(180, 185, 200));
 
             // Progress bar
-            let bar_w = 300.0;
-            let bar_x = list_x + list_w - 220.0 - bar_w - 30.0;
+            let bar_w = 200.0;
+            let bar_x = btn_x - bar_w - 30.0;
             let bar_y = item_y + 85.0;
             let bar_bg = kurbo::RoundedRect::new(bar_x, bar_y, bar_x + bar_w, bar_y + 8.0, 4.0);
             scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, vello::peniko::Color::from_rgb8(45, 50, 65), None, &bar_bg);
@@ -621,16 +655,17 @@ impl App {
             }
 
             // Leer button
-            let btn_w = 180.0;
-            let btn_h = 60.0;
-            let btn_x = list_x + list_w - btn_w - 30.0;
-            let btn_y = item_y + 40.0;
-            let is_hover = hover_state == (100 + idx) as u8;
-            let btn_bg = if is_hover { vello::peniko::Color::from_rgb8(80, 120, 220) } else { vello::peniko::Color::from_rgb8(50, 90, 190) };
+            let btn_bg = if !file_exists {
+                vello::peniko::Color::from_rgb8(45, 50, 60)
+            } else {
+                let is_hover = hover_state == (100 + idx) as u8;
+                if is_hover { vello::peniko::Color::from_rgb8(80, 120, 220) } else { vello::peniko::Color::from_rgb8(50, 90, 190) }
+            };
             
             let btn_rect = kurbo::RoundedRect::new(btn_x, btn_y, btn_x + btn_w, btn_y + btn_h, 8.0);
             scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, btn_bg, None, &btn_rect);
             
+            let leer_color = if file_exists { vello::peniko::Color::WHITE } else { vello::peniko::Color::from_rgb8(120, 125, 140) };
             if self.loading_lectura_idx == Some(start_idx + idx) && self.loading_timeout.is_some() {
                 let ms = std::time::Instant::now().elapsed().as_millis();
                 let dots = match (ms / 300) % 4 {
@@ -641,12 +676,22 @@ impl App {
                 };
                 let txt = format!("Cargando{}", dots);
                 let tw = self.measure_text_width(&txt, 20.0, font) as f64;
-                self.draw_text_to_scene(scene, &txt, btn_x + (btn_w - tw) / 2.0, btn_y + 36.0, 20.0, font, vello::peniko::Color::WHITE);
+                self.draw_text_to_scene(scene, &txt, btn_x + (btn_w - tw) / 2.0, btn_y + 36.0, 20.0, font, leer_color);
             } else {
                 let leer_txt = "Leer";
                 let leer_tw = self.measure_text_width(leer_txt, 28.0, font) as f64;
-                self.draw_text_to_scene(scene, leer_txt, btn_x + (btn_w - leer_tw) / 2.0, btn_y + 40.0, 28.0, font, vello::peniko::Color::WHITE);
+                self.draw_text_to_scene(scene, leer_txt, btn_x + (btn_w - leer_tw) / 2.0, btn_y + 40.0, 28.0, font, leer_color);
             }
+
+            // Quitar button
+            let is_remove_hover = hover_state == (200 + idx) as u8;
+            let remove_btn_bg = if is_remove_hover { vello::peniko::Color::from_rgb8(220, 70, 70) } else { vello::peniko::Color::from_rgb8(180, 40, 40) };
+            let remove_btn_rect = kurbo::RoundedRect::new(remove_btn_x, btn_y, remove_btn_x + remove_btn_w, btn_y + remove_btn_h, 8.0);
+            scene.fill(vello::peniko::Fill::NonZero, kurbo::Affine::IDENTITY, remove_btn_bg, None, &remove_btn_rect);
+
+            let remove_txt = "Quitar";
+            let remove_tw = self.measure_text_width(remove_txt, 28.0, font) as f64;
+            self.draw_text_to_scene(scene, remove_txt, remove_btn_x + (remove_btn_w - remove_tw) / 2.0, btn_y + 40.0, 28.0, font, vello::peniko::Color::WHITE);
         }
 
         if total_pages > 1 {
@@ -1377,22 +1422,57 @@ impl App {
             if mx >= width / 2.0 + 50.0 && mx <= width / 2.0 + 150.0 && my >= pag_y && my <= pag_y + 50.0 {
                 return 52; // Next button
             }
+            
+            let start_y = 260.0f32;
+            let item_h = 140.0f32;
+            let gap = 20.0f32;
 
-            let start_y = 260.0;
-            let item_h = 140.0;
-            let gap = 20.0;
+            // Calculate current page items count
+            let query = self.lecturas_search_query.to_lowercase();
+            let readings_count = crate::db::get_all_readings().into_iter().filter(|(p, info)| {
+                if query.is_empty() { return true; }
+                let name = std::path::Path::new(p).file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
+                let author = info.author.to_lowercase();
+                name.contains(&query) || author.contains(&query)
+            }).count();
+            let items_per_page = ((height - 400.0) / (item_h + gap)).floor().max(1.0) as usize;
+            let start_idx = self.lecturas_page_idx * items_per_page;
+            let end_idx = (start_idx + items_per_page).min(readings_count);
+            let current_page_items_count = end_idx.saturating_sub(start_idx);
+
             let my_rel = my - start_y;
             if my_rel >= 0.0 {
                 let idx = (my_rel / (item_h + gap)).floor() as i32;
-                let btn_y = start_y + (idx as f32 * (item_h + gap)) + 40.0;
-                
-                let list_w = (width - 100.0).max(800.0);
-                let list_x = (width - list_w) / 2.0;
-                let btn_w = 180.0;
-                let btn_x = list_x + list_w - btn_w - 30.0;
+                if idx >= 0 && (idx as usize) < current_page_items_count {
+                    let btn_y = start_y + (idx as f32 * (item_h + gap)) + 40.0;
+                    
+                    let list_w = (width - 100.0).max(800.0);
+                    let list_x = (width - list_w) / 2.0;
+                    
+                    // Quitar button
+                    let remove_btn_w = 110.0f32;
+                    let remove_btn_x = list_x + list_w - remove_btn_w - 30.0;
+                    if mx >= remove_btn_x && mx <= remove_btn_x + remove_btn_w && my >= btn_y && my <= btn_y + 60.0 {
+                        return 200 + idx as u8;
+                    }
 
-                if mx >= btn_x && mx <= btn_x + btn_w && my >= btn_y && my <= btn_y + 60.0 {
-                    return 100 + idx as u8;
+                    // Leer button
+                    let btn_w = 120.0f32;
+                    let btn_x = remove_btn_x - btn_w - 15.0;
+                    if mx >= btn_x && mx <= btn_x + btn_w && my >= btn_y && my <= btn_y + 60.0 {
+                        // Only hover if file exists
+                        let readings: Vec<_> = crate::db::get_all_readings().into_iter().filter(|(p, info)| {
+                            if query.is_empty() { return true; }
+                            let name = std::path::Path::new(p).file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
+                            let author = info.author.to_lowercase();
+                            name.contains(&query) || author.contains(&query)
+                        }).collect();
+                        if let Some((path, _)) = readings.get(start_idx + idx as usize) {
+                            if std::path::Path::new(path).exists() {
+                                return 100 + idx as u8;
+                            }
+                        }
+                    }
                 }
             }
             return 0;
@@ -1968,7 +2048,40 @@ impl ApplicationHandler for App {
                             self.lecturas_search_active = false;
                             if let Some(window) = self.window.as_ref() { window.request_redraw(); }
                         }
-                        if hover >= 100 {
+                        if hover >= 200 {
+                            let idx = (hover - 200) as usize;
+                            let query = self.lecturas_search_query.to_lowercase();
+                            let readings: Vec<_> = crate::db::get_all_readings().into_iter().filter(|(p, info)| {
+                                if query.is_empty() { return true; }
+                                let name = std::path::Path::new(p).file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
+                                let author = info.author.to_lowercase();
+                                name.contains(&query) || author.contains(&query)
+                            }).collect();
+
+                            let item_h = 140.0;
+                            let gap = 20.0;
+                            let height = self.window_size.height as f32;
+                            let items_per_page = ((height - 400.0) / (item_h + gap)).floor().max(1.0) as usize;
+                            let start_idx = self.lecturas_page_idx * items_per_page;
+                            let abs_idx = start_idx + idx;
+
+                            if abs_idx < readings.len() {
+                                let (path, _) = &readings[abs_idx];
+                                let _ = crate::db::delete_reading(path);
+                                
+                                // Recalculate total pages and clamp page index
+                                let remaining_count = crate::db::get_all_readings().into_iter().filter(|(p, info)| {
+                                    if query.is_empty() { return true; }
+                                    let name = std::path::Path::new(p).file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
+                                    let author = info.author.to_lowercase();
+                                    name.contains(&query) || author.contains(&query)
+                                }).count();
+                                let total_pages = (remaining_count + items_per_page - 1) / items_per_page;
+                                self.lecturas_page_idx = self.lecturas_page_idx.min(total_pages.saturating_sub(1));
+                                
+                                if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                            }
+                        } else if hover >= 100 {
                             let idx = (hover - 100) as usize;
                             let query = self.lecturas_search_query.to_lowercase();
                             let readings: Vec<_> = crate::db::get_all_readings().into_iter().filter(|(p, info)| {
@@ -1987,20 +2100,22 @@ impl ApplicationHandler for App {
 
                             if abs_idx < readings.len() {
                                 let (path, _) = &readings[abs_idx];
-                                self.lecturas_search_active = false;
-                                self.loading_timeout = Some(std::time::Instant::now());
-                                self.loading_lectura_idx = Some(abs_idx);
-                                if let Some(window) = self.window.as_ref() { window.request_redraw(); }
-                                
-                                if let Ok(exe) = std::env::current_exe() {
-                                    let mut cmd = std::process::Command::new(exe);
-                                    cmd.arg(path);
-                                    #[cfg(target_os = "windows")]
-                                    {
-                                        use std::os::windows::process::CommandExt;
-                                        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                                if std::path::Path::new(path).exists() {
+                                    self.lecturas_search_active = false;
+                                    self.loading_timeout = Some(std::time::Instant::now());
+                                    self.loading_lectura_idx = Some(abs_idx);
+                                    if let Some(window) = self.window.as_ref() { window.request_redraw(); }
+                                    
+                                    if let Ok(exe) = std::env::current_exe() {
+                                        let mut cmd = std::process::Command::new(exe);
+                                        cmd.arg(path);
+                                        #[cfg(target_os = "windows")]
+                                        {
+                                            use std::os::windows::process::CommandExt;
+                                            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                                        }
+                                        cmd.spawn().ok();
                                     }
-                                    cmd.spawn().ok();
                                 }
                             }
                         }
